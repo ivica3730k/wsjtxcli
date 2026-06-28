@@ -1,0 +1,30 @@
+[project]
+name = "wsjtxcli"
+version = "0.0.0"
+description = "Launch isolated WSJT-X instances configured with argument input"
+authors = [{ name = "Ivica" }]
+requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: POSIX :: Linux",
+]
+
+[project.scripts]
+wsjtxcli = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.poetry.group.dev.dependencies]
+black = "26.3.1"
+pytest = "9.0.3"
+isort = "8.0.1"
+setuptools = "82.0.1"
+pre-commit = "4.6.0"
+mypy = "^2.1.0"
+pylint = "^4.0.5"
