@@ -45,6 +45,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Set up Python
+        id: setup-python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -71,6 +72,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install .
           pip install pyinstaller staticx
+
+      - name: Strip RUNPATH from Python libs (staticx compatibility)
+        run: |
+          find "$pythonLocation/lib" \( -name '*.so' -o -name '*.so.*' \) \
+            -exec patchelf --remove-rpath {} +
 
       - name: Build PyInstaller binary
         run: pyinstaller --onefile --name wsjtxcli --collect-submodules wsjtxcli wsjtxcli/main.py
