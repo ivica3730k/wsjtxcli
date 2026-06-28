@@ -27,7 +27,7 @@ jobs:
           python -m pip install build
 
       - name: Check CLI help
-        run: python main.py --help
+        run: python -m wsjtxcli.main --help
 
       - name: Build distribution artifacts
         run: python -m build
