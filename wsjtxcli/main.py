@@ -110,9 +110,7 @@ def parse_callsign(value: str) -> str:
 def parse_grid(value: str) -> str:
     grid = value.strip().upper()
     if not GRID_RE.fullmatch(grid):
-        raise argparse.ArgumentTypeError(
-            "grid must be a 4- or 6-character Maidenhead locator"
-        )
+        raise argparse.ArgumentTypeError("grid must be a 4- or 6-character Maidenhead locator")
     return grid
 
 
@@ -120,18 +118,14 @@ def parse_mode(value: str) -> str:
     mode = value.strip().upper()
     canonical = MODE_CANONICAL.get(mode)
     if canonical is None:
-        raise argparse.ArgumentTypeError(
-            f"unknown mode: {value!r} (choices: {', '.join(sorted(MODE_CANONICAL))})"
-        )
+        raise argparse.ArgumentTypeError(f"unknown mode: {value!r} (choices: {', '.join(sorted(MODE_CANONICAL))})")
     return canonical
 
 
 def parse_band(value: str) -> str:
     match = BAND_RE.fullmatch(value.strip().upper())
     if match is None:
-        raise argparse.ArgumentTypeError(
-            f"band must look like '40m', '20m', etc.: {value!r}"
-        )
+        raise argparse.ArgumentTypeError(f"band must look like '40m', '20m', etc.: {value!r}")
     return f"{int(match.group(1))}m"
 
 
@@ -139,9 +133,7 @@ def parse_frequency(value: str) -> int:
     try:
         freq = int(value)
     except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"rx frequency must be an integer number of Hz: {value!r}"
-        )
+        raise argparse.ArgumentTypeError(f"rx frequency must be an integer number of Hz: {value!r}")
     if not 0 < freq <= 2_000_000_000:
         raise argparse.ArgumentTypeError("rx frequency must be between 1 Hz and 2 GHz")
     return freq
@@ -154,16 +146,12 @@ def parse_audio_device(value: str) -> str:
 def resolve_dial_frequency(mode: str, band: str) -> int:
     band_table = DEFAULT_DIAL_FREQS.get(mode)
     if band_table is None:
-        raise SystemExit(
-            f"no default dial frequencies known for mode {mode}; "
-            "pass --rx-frequency explicitly"
-        )
+        raise SystemExit(f"no default dial frequencies known for mode {mode}; " "pass --rx-frequency explicitly")
     dial = band_table.get(band)
     if dial is None:
         known = ", ".join(band_table)
         raise SystemExit(
-            f"no default {mode} dial frequency for band {band} "
-            f"(known: {known}); pass --rx-frequency explicitly"
+            f"no default {mode} dial frequency for band {band} " f"(known: {known}); pass --rx-frequency explicitly"
         )
     return dial
 
@@ -235,9 +223,7 @@ def terminate_child(process: subprocess.Popen[bytes]) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Launch WSJT-X with a temporary per-instance rig name."
-    )
+    parser = argparse.ArgumentParser(description="Launch WSJT-X with a temporary per-instance rig name.")
     parser.add_argument("--callsign", required=True, type=parse_callsign)
     parser.add_argument("--grid", required=True, type=parse_grid)
     parser.add_argument("--mode", required=True, type=parse_mode)

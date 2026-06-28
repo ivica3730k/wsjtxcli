@@ -888,5 +888,5 @@ typing-extensions = {version = ">=4.13.2", markers = "python_version < \"3.11\""
 
 [metadata]
 lock-version = "2.1"
-python-versions = ">=3.10"
-content-hash = "57b8549f67627787c8aa499986d0e084e2f3b6926a3cfd114a0d6fcad79f9a1d"
+python-versions = "^3.10"
+content-hash = "354b32aa854f1e90e8ce4297a4365c9039f19914ef9867e16c9f83aead379e35"
