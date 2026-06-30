@@ -20,7 +20,7 @@ Each run mints a unique per-instance rig name, writes a temporary config seeded 
 
 ## Installation
 
-Pick one of the three methods below. The `.deb` and the standalone binary both install a `wsjtxcli` command; substitute it for `python main.py` in the usage examples.
+Pick one of the three methods below. The `.deb` and the standalone binary both install a `wsjtxcli` command; substitute it for `python3 -m wsjtxcli.main` in the usage examples.
 
 ### 1. Debian / Ubuntu package (recommended for Debian/Ubuntu)
 
@@ -48,26 +48,26 @@ Requires Python 3.10+.
 ```bash
 git clone https://github.com/ivica3730k/wsjtxcli.git
 cd wsjtxcli
-python main.py --help
+python3 -m wsjtxcli.main --help
 ```
 
 ## Usage
 
 ```bash
-python main.py --callsign YOURCALL --grid AA00aa --mode FT8 --rx-band 40m 
+python3 -m wsjtxcli.main --callsign YOURCALL --grid AA00aa --mode FT8 --rx-band 40m # replace wsjtxcli.main just with wsjtxcli if you installed it
 ```
 
 Headless on a server (omit `--audio-device` to use the system default source):
 
 ```bash
-python main.py --callsign YOURCALL --grid AA00aa --mode WSPR --rx-band 20m \
+python3 -m wsjtxcli.main --callsign YOURCALL --grid AA00aa --mode WSPR --rx-band 20m \
   --wsprnet-reporter --nogui
 ```
 
 Explicit dial frequency (e.g. FT8 off its usual sub-band):
 
 ```bash
-python main.py --callsign YOURCALL --grid AA00aa --mode FT8 --rx-frequency 7100000 \
+python3 -m wsjtxcli.main --callsign YOURCALL --grid AA00aa --mode FT8 --rx-frequency 7100000 \
   --audio-device sdr_usb.monitor
 ```
 
