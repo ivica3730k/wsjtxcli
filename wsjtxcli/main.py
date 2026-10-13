@@ -161,6 +161,37 @@ def xdg_path(env_var: str, fallback: str) -> Path:
     return Path(raw_value).expanduser() if raw_value else Path.home() / fallback
 
 
+def sanitize_wsjtx_environment(env: dict[str, str], wsjtx_bin: str) -> dict[str, str]:
+    # Do not scrub anything when the target binary itself is a snap package.
+    if "/snap/" in wsjtx_bin:
+        return env
+
+    def has_snap_path(value: str | None) -> bool:
+        if not value:
+            return False
+        return "/snap/" in value or "/var/lib/snapd/" in value
+
+    snap_context = any(key == "SNAP" or key.startswith("SNAP_") for key in env) or any(
+        has_snap_path(value) for value in env.values()
+    )
+
+    # Running wsjtxcli from a snap (or a shell polluted by snap paths) can leak
+    # snap glibc/Qt paths into /usr/bin/wsjtx and trigger symbol lookup errors.
+    for key in tuple(env):
+        if key == "SNAP" or key.startswith("SNAP_"):
+            env.pop(key, None)
+
+    if snap_context:
+        for key in tuple(env):
+            if key.startswith("LD_"):
+                env.pop(key, None)
+
+        for key in ("QT_PLUGIN_PATH", "QML2_IMPORT_PATH", "GTK_PATH", "GTK_EXE_PREFIX", "GTK_DATA_PREFIX"):
+            env.pop(key, None)
+
+    return env
+
+
 def write_instance_config(
     config_path: Path,
     callsign: str,
@@ -300,6 +331,7 @@ def main() -> int:
 
         try:
             env = os.environ.copy()
+            env = sanitize_wsjtx_environment(env, wsjtx_bin)
             if args.nogui:
                 # Xvfb provides an X11 display; do not let Qt select Wayland.
                 env["QT_QPA_PLATFORM"] = "xcb"

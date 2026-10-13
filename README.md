@@ -102,3 +102,4 @@ Use the SDR demodulator's `.monitor` source (e.g. `sdr_usb.monitor`) as `--audio
 ## Notes
 
 - Config and data live under `$XDG_CONFIG_HOME` (default `~/.config`) and `$XDG_DATA_HOME` (default `~/.local/share`) respectively, created per-instance and removed on exit.
+- When launching a non-snap `/usr/bin/wsjtx`, `wsjtxcli` strips snap runtime variables (including `SNAP*`, `LD_*`, and snap Qt/GTK paths) to avoid Qt/glibc symbol lookup conflicts in GUI mode.
