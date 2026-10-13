@@ -299,7 +299,13 @@ def main() -> int:
             ]
 
         try:
-            process = subprocess.Popen(command)
+            env = os.environ.copy()
+            if args.nogui:
+                # Xvfb provides an X11 display; do not let Qt select Wayland.
+                env["QT_QPA_PLATFORM"] = "xcb"
+                env.pop("WAYLAND_DISPLAY", None)
+
+            process = subprocess.Popen(command, env=env)
             try:
                 return process.wait()
             except KeyboardInterrupt:
