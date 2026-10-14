@@ -220,3 +220,11 @@ __marimo__/
 *.claude 
 *.desktop
 .worktrees/
+
+# C++ build outputs.
+binaries/
+build/
+dist/
+pkgroot/
+compile_commands.json
+.cache/

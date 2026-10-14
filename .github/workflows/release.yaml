@@ -1,151 +1,123 @@
 name: Release artifacts
 
 on:
+  workflow_dispatch:
   release:
     types: [published]
 
 permissions:
   contents: write
 
+# Two downloads per architecture: a .deb for Debian and Ubuntu, which pulls in
+# wsjtx and xvfb, and a bare binary for everyone else. Neither is tied to a
+# distribution -- libstdc++ is linked statically, so the only requirement is
+# glibc, and the baseline is Ubuntu 22.04's.
+
 jobs:
-  build-wheel:
-    name: Build wheel + sdist
-    runs-on: ubuntu-latest
+  linux:
+    name: Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+            deb_arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            deb_arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        id: setup-python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install Poetry
-        uses: abatilo/actions-poetry@v4
-        with:
-          poetry-version: "1.8.5"
-
-      - name: Set version from tag
-        run: poetry version "${GITHUB_REF_NAME#v}"
-
-      - name: Build
-        run: poetry build
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.whl
-            dist/*.tar.gz
-
-  build-binary:
-    name: Build portable Linux binary
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        id: setup-python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install Poetry
-        uses: abatilo/actions-poetry@v4
-        with:
-          poetry-version: "1.8.5"
-
-      - name: Install build prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y patchelf
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Resolve version
-        id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Set version from tag
-        run: poetry version "${{ steps.ver.outputs.version }}"
-
-      - name: Install project and build tools
+        id: version
         run: |
-          python -m pip install --upgrade pip
-          pip install .
-          pip install pyinstaller staticx
+          # On a release the ref is the tag; a manual run has no tag to read.
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Strip RUNPATH from Python libs (staticx compatibility)
+      - name: Build in the Ubuntu 22.04 baseline
         run: |
-          find "$pythonLocation/lib" \( -name '*.so' -o -name '*.so.*' \) \
-            -exec patchelf --remove-rpath {} +
+          docker run --rm -v "$PWD:/work" -w /work \
+            -e VERSION="${{ steps.version.outputs.version }}" \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            ubuntu:22.04 bash -ex -c '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -q
+              apt-get install -y --no-install-recommends build-essential cmake ca-certificates
+              cmake -S . -B build/release \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DWSJTXCLI_BUILD_TESTS=ON \
+                -DWSJTXCLI_STATIC_RUNTIME=ON \
+                -DWSJTXCLI_VERSION="$VERSION" \
+                -DWSJTXCLI_BIN_DIR=/work/dist
+              cmake --build build/release -j "$(nproc)"
+              ctest --test-dir build/release --output-on-failure
+              # The container runs as root, so dist/ lands root-owned on the
+              # mounted host tree; later steps run as the runner user and add
+              # the named assets to that same directory.
+              chown -R "$HOST_UID:$HOST_GID" dist/ build/
+            '
 
-      - name: Build PyInstaller binary
-        run: pyinstaller --onefile --name wsjtxcli --collect-submodules wsjtxcli wsjtxcli/main.py
-
-      - name: Make static binary
-        run: staticx dist/wsjtxcli dist/wsjtxcli-linux-x86_64
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/wsjtxcli-linux-x86_64
-
-  build-deb:
-    name: Build Ubuntu .deb
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install Poetry
-        uses: abatilo/actions-poetry@v4
-        with:
-          poetry-version: "1.8.5"
-
-      - name: Install build prerequisites
+      - name: Confirm the binary needs nothing but libc
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ruby ruby-dev rubygems build-essential
+          ldd dist/wsjtxcli
+          ! ldd dist/wsjtxcli | grep -q libstdc++
+
+      - name: Smoke the release binary
+        run: ./tools/smoke.sh dist/wsjtxcli
+
+      - name: Build the .deb
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends ruby ruby-dev build-essential
           sudo gem install --no-document fpm
-
-      - name: Resolve version
-        id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Set version from tag
-        run: poetry version "${{ steps.ver.outputs.version }}"
-
-      - name: Install project and PyInstaller
-        run: |
-          python -m pip install --upgrade pip
-          pip install .
-          pip install pyinstaller
-
-      - name: Build Linux binary
-        run: pyinstaller --onefile --name wsjtxcli --collect-submodules wsjtxcli wsjtxcli/main.py
-
-      - name: Stage files for packaging
-        run: |
           mkdir -p pkgroot/usr/bin
           install -m 0755 dist/wsjtxcli pkgroot/usr/bin/wsjtxcli
-
-      - name: Build .deb
-        run: |
           fpm -s dir -t deb \
             -n wsjtxcli \
-            -v "${{ steps.ver.outputs.version }}" \
-            --description "WSJT-X CLI Wrapper" \
-            --maintainer "Ivica <ivica@example.com>" \
+            -v "${{ steps.version.outputs.version }}" \
+            --description "Launch isolated, receive-only WSJT-X instances from the command line" \
+            --url "https://github.com/ivica3730k/wsjtxcli" \
+            --license MIT \
+            --maintainer "Ivica <ivica3730k@users.noreply.github.com>" \
             --depends wsjtx \
             --depends xvfb \
-            --architecture amd64 \
+            --architecture ${{ matrix.deb_arch }} \
+            -p "dist/wsjtxcli_${{ steps.version.outputs.version }}_${{ matrix.deb_arch }}.deb" \
             -C pkgroot \
             usr
 
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
+      - name: Confirm the package declares its dependencies and runs
+        # Installed without pulling wsjtx and xvfb in: the point is the package
+        # layout and the metadata, not a working radio on a CI runner.
+        run: |
+          DEB="dist/wsjtxcli_${{ steps.version.outputs.version }}_${{ matrix.deb_arch }}.deb"
+          dpkg-deb -f "$DEB" Depends | grep -q wsjtx
+          dpkg-deb -f "$DEB" Depends | grep -q xvfb
+          sudo dpkg -i --force-depends "$DEB"
+          /usr/bin/wsjtxcli --version
+
+      - name: Name the assets
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          cp dist/wsjtxcli "dist/wsjtxcli-linux-${{ matrix.arch }}-$V"
+          cp dist/wsjtxcli "dist/wsjtxcli-linux-${{ matrix.arch }}-latest"
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3
+        if: github.event_name == 'release'
         with:
-          files: "*.deb"
+          files: |
+            dist/wsjtxcli-linux-${{ matrix.arch }}-*
+            dist/*.deb
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: wsjtxcli-linux-${{ matrix.arch }}
+          path: |
+            dist/wsjtxcli-linux-${{ matrix.arch }}-*
+            dist/*.deb
