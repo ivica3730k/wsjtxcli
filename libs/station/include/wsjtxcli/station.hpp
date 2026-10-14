@@ -34,6 +34,10 @@ std::string parse_band(const std::string& value);
 /// Parses an RF dial frequency in Hz, bounded to 1 Hz .. 2 GHz.
 std::int64_t parse_frequency(const std::string& value);
 
+/// Takes a capture source name with its surrounding spaces removed. Empty
+/// means "leave WSJT-X on the system default input".
+std::string parse_audio_device(const std::string& value);
+
 /// Looks up the default dial frequency for a mode/band pairing.
 /// Throws RuntimeFailure when the pairing has no default.
 std::int64_t resolve_dial_frequency(const std::string& mode, const std::string& band);

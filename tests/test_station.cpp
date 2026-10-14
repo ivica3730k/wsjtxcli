@@ -64,6 +64,12 @@ TEST_CASE("frequencies are bounded integers of Hz", "[station]") {
   REQUIRE_THROWS_AS(station::parse_frequency("99999999999999999999"), UsageError);
 }
 
+TEST_CASE("audio device names keep everything but their outer spaces", "[station]") {
+  REQUIRE(station::parse_audio_device("  sdr_usb.monitor  ") == "sdr_usb.monitor");
+  REQUIRE(station::parse_audio_device("alsa_input.pci-0000_00_1f.3") == "alsa_input.pci-0000_00_1f.3");
+  REQUIRE(station::parse_audio_device("   ").empty());
+}
+
 TEST_CASE("default dial frequencies match WSJT-X", "[station]") {
   REQUIRE(station::resolve_dial_frequency("FT8", "40m") == 7074000);
   REQUIRE(station::resolve_dial_frequency("FT8", "2m") == 144174000);

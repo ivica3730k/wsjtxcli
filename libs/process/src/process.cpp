@@ -179,7 +179,6 @@ int run(const std::vector<std::string>& command, const Environment& env) {
     _exit(127);
   }
 
-  bool forwarded = false;
   int status = 0;
   for (;;) {
     const pid_t finished = waitpid(child, &status, 0);
@@ -187,8 +186,10 @@ int run(const std::vector<std::string>& command, const Environment& env) {
       break;
     }
     if (errno == EINTR) {
-      if (interrupted != 0 && !forwarded) {
-        forwarded = true;
+      // Every Ctrl-C is passed on, not just the first: a child that ignores
+      // one would otherwise be unreachable from the terminal.
+      if (interrupted != 0) {
+        interrupted = 0;
         kill(child, SIGINT);
       }
       continue;

@@ -2,14 +2,18 @@
 // it was handed, and the test checks the instance config, the argv, the child
 // environment and the cleanup afterwards.
 
+#include <signal.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "catch.hpp"
@@ -37,6 +41,19 @@ std::string read_file(const std::filesystem::path& path) {
   return contents.str();
 }
 
+/// Waits for a file the fake wsjtx is expected to create. Polling keeps the
+/// test independent of how fast a shell gets going on a loaded CI runner.
+bool wait_for(const std::filesystem::path& path, std::chrono::milliseconds timeout) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (std::filesystem::exists(path)) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return false;
+}
+
 /// A launch under a sandbox: PATH, HOME and both XDG roots point into a
 /// scratch tree, so the test never touches the operator's real WSJT-X profile.
 class Sandbox {
@@ -62,6 +79,50 @@ class Sandbox {
                  "echo decoded > \"$XDG_DATA_HOME/WSJT-X - $rig/decodes.txt\"\n"
                  "echo \"$rig\" > \"$RECORD/rig\"\n"
                  "exit ${FAKE_WSJTX_EXIT:-0}\n");
+  }
+
+  /// A wsjtx that stays up until it is interrupted, so the Ctrl-C path has
+  /// something to interrupt.
+  void install_waiting_wsjtx() const {
+    write_script(bin() / "wsjtx",
+                 "#!/bin/sh\n"
+                 "trap 'echo interrupted > \"$RECORD/signal\"; exit 130' INT\n"
+                 "rig=${1#--rig-name=}\n"
+                 "/bin/cp \"$XDG_CONFIG_HOME/WSJT-X - $rig.ini\" \"$RECORD/instance.ini\"\n"
+                 "echo ready > \"$RECORD/ready\"\n"
+                 "while true; do /bin/sleep 0.1; done\n");
+  }
+
+  /// Starts wsjtxcli directly, with no shell in between, so the test holds the
+  /// pid it needs to signal.
+  pid_t spawn(const std::vector<std::string>& args) const {
+    std::vector<std::string> argv_strings = {WSJTXCLI_BINARY};
+    argv_strings.insert(argv_strings.end(), args.begin(), args.end());
+    std::vector<std::string> env_strings = {"PATH=" + bin().string(),
+                                            "HOME=" + scratch_.path().string(),
+                                            "XDG_CONFIG_HOME=" + config_home().string(),
+                                            "XDG_DATA_HOME=" + data_home().string(),
+                                            "TMPDIR=" + scratch_.path().string(),
+                                            "RECORD=" + record().string()};
+
+    std::vector<char*> argv;
+    for (std::string& value : argv_strings) {
+      argv.push_back(value.data());
+    }
+    argv.push_back(nullptr);
+    std::vector<char*> envp;
+    for (std::string& value : env_strings) {
+      envp.push_back(value.data());
+    }
+    envp.push_back(nullptr);
+
+    const pid_t pid = fork();
+    REQUIRE(pid >= 0);
+    if (pid == 0) {
+      execve(WSJTXCLI_BINARY, argv.data(), envp.data());
+      _exit(127);
+    }
+    return pid;
   }
 
   /// xvfb-run as wsjtxcli calls it: -a, -s <screen spec>, then the command.
@@ -217,4 +278,25 @@ TEST_CASE("--help and --version answer without launching anything", "[launch]") 
   REQUIRE(version.output == std::string(WSJTXCLI_VERSION) + "\n");
 
   REQUIRE_FALSE(std::filesystem::exists(sandbox.record() / "argv"));
+}
+
+TEST_CASE("Ctrl-C reaches wsjtx and the instance is still cleaned up", "[launch]") {
+  const Sandbox sandbox;
+  sandbox.install_waiting_wsjtx();
+
+  const pid_t cli = sandbox.spawn({"--callsign", "9A3ICE", "--grid", "JN95", "--mode", "FT8", "--rx-band", "40m"});
+  REQUIRE(wait_for(sandbox.record() / "ready", std::chrono::seconds(10)));
+
+  REQUIRE(kill(cli, SIGINT) == 0);
+
+  int status = 0;
+  REQUIRE(waitpid(cli, &status, 0) == cli);
+  REQUIRE(WIFEXITED(status));
+  // WSJT-X exits 130 on an interrupt of its own, and that status is passed on.
+  REQUIRE(WEXITSTATUS(status) == 130);
+  REQUIRE(wait_for(sandbox.record() / "signal", std::chrono::seconds(1)));
+
+  // The whole point of forwarding rather than dying: the cleanup still runs.
+  REQUIRE(std::filesystem::is_empty(sandbox.config_home()));
+  REQUIRE(std::filesystem::is_empty(sandbox.data_home()));
 }

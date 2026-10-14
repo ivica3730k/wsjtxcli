@@ -191,6 +191,8 @@ std::int64_t parse_frequency(const std::string& value) {
   return static_cast<std::int64_t>(frequency);
 }
 
+std::string parse_audio_device(const std::string& value) { return strip(value); }
+
 std::int64_t resolve_dial_frequency(const std::string& mode, const std::string& band) {
   const auto& table = default_dial_freqs();
   const auto by_mode = table.find(mode);

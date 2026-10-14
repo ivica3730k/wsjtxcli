@@ -174,15 +174,7 @@ ParseResult parse_arguments(const std::vector<std::string>& args) {
     throw UsageError("--wsprnet-reporter is only allowed with --mode WSPR");
   }
 
-  // argparse's type hook stripped this one too, so " default " and "default"
-  // have always named the same device.
-  options.audio_device = audio_device;
-  while (!options.audio_device.empty() && std::isspace(static_cast<unsigned char>(options.audio_device.front()))) {
-    options.audio_device.erase(options.audio_device.begin());
-  }
-  while (!options.audio_device.empty() && std::isspace(static_cast<unsigned char>(options.audio_device.back()))) {
-    options.audio_device.pop_back();
-  }
+  options.audio_device = station::parse_audio_device(audio_device);
 
   options.psk_reporter = psk_reporter;
   options.wsprnet_reporter = wsprnet_reporter;
