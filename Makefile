@@ -27,11 +27,12 @@ test:
 	cmake -S . -B $(BUILD_DIR)/test $(CMAKE_FLAGS) -DWSJTXCLI_BUILD_TESTS=ON \
 	      -DWSJTXCLI_BIN_DIR=$(CURDIR)/$(BIN_DIR)/test
 	cmake --build $(BUILD_DIR)/test -j $(JOBS)
-	ctest --test-dir $(BUILD_DIR)/test --output-on-failure
+	cd $(BUILD_DIR)/test && ctest --output-on-failure
 
 install: build
-	install -d $(PREFIX)/bin
+	install -d $(PREFIX)/bin $(PREFIX)/share/doc/wsjtxcli
 	install -m 0755 $(BIN_DIR)/host/wsjtxcli $(PREFIX)/bin/wsjtxcli
+	install -m 0644 LICENSE THIRD-PARTY-NOTICES.md $(PREFIX)/share/doc/wsjtxcli/
 
 clean:
 	rm -rf $(BUILD_DIR)

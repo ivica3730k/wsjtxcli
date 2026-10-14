@@ -1,5 +1,6 @@
 #include "wsjtxcli/cli.hpp"
 
+#include <signal.h>
 #include <unistd.h>
 
 #include <cctype>
@@ -23,15 +24,43 @@ namespace {
 // Virtual display geometry used for headless (--nogui) operation.
 constexpr const char* kNoguiScreen = "1024x768x24";
 
-/// The directory temporary files go in. Only TMPDIR is honoured, the one
-/// variable POSIX defines for it.
-std::filesystem::path temp_directory() {
+/// Where a temporary file may be put, most preferred first. TMPDIR is only the
+/// first candidate: Python's tempfile picked the first directory that actually
+/// worked, so a stale TMPDIR never stopped a launch.
+std::vector<std::filesystem::path> temp_directories() {
+  std::vector<std::filesystem::path> candidates;
   const char* tmpdir = std::getenv("TMPDIR");
   if (tmpdir != nullptr && *tmpdir != '\0') {
-    return std::filesystem::path(tmpdir);
+    candidates.emplace_back(tmpdir);
   }
-  return std::filesystem::path("/tmp");
+  candidates.emplace_back("/tmp");
+  candidates.emplace_back("/var/tmp");
+  return candidates;
 }
+
+/// Holds SIGINT off from the moment there is something to clean up until the
+/// cleanup has run. Python got this for free: its default handler raises, so
+/// an interrupt anywhere in here unwound through the `finally`. Here the
+/// default action would terminate the process with the instance config still
+/// on disk. Blocked rather than ignored, so the interrupt is still pending
+/// when process::run picks it up and passes it to WSJT-X.
+class BlockedInterrupts {
+ public:
+  BlockedInterrupts() {
+    sigset_t blocked;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGINT);
+    sigprocmask(SIG_BLOCK, &blocked, &previous_);
+  }
+
+  ~BlockedInterrupts() { sigprocmask(SIG_SETMASK, &previous_, nullptr); }
+
+  BlockedInterrupts(const BlockedInterrupts&) = delete;
+  BlockedInterrupts& operator=(const BlockedInterrupts&) = delete;
+
+ private:
+  sigset_t previous_{};
+};
 
 /// A unique rig name, held by an open temporary file for as long as the
 /// instance lives. Two concurrent runs cannot be handed the same name, which
@@ -39,15 +68,20 @@ std::filesystem::path temp_directory() {
 class RigNameReservation {
  public:
   RigNameReservation() {
-    std::string pattern = (temp_directory() / "wsjtx-XXXXXX").string();
-    std::vector<char> buffer(pattern.begin(), pattern.end());
-    buffer.push_back('\0');
-    fd_ = mkstemp(buffer.data());
-    if (fd_ < 0) {
-      throw RuntimeFailure("cannot create a temporary file in " + temp_directory().string());
+    std::string tried;
+    for (const std::filesystem::path& directory : temp_directories()) {
+      std::string pattern = (directory / "wsjtx-XXXXXX").string();
+      std::vector<char> buffer(pattern.begin(), pattern.end());
+      buffer.push_back('\0');
+      fd_ = mkstemp(buffer.data());
+      if (fd_ >= 0) {
+        path_ = std::string(buffer.data());
+        name_ = std::filesystem::path(path_).filename().string();
+        return;
+      }
+      tried += (tried.empty() ? "" : ", ") + directory.string();
     }
-    path_ = std::string(buffer.data());
-    name_ = std::filesystem::path(path_).filename().string();
+    throw RuntimeFailure("cannot create a temporary file in " + tried);
   }
 
   ~RigNameReservation() {
@@ -117,13 +151,18 @@ ParseResult parse_arguments(const std::vector<std::string>& args) {
   bool wsprnet_reporter = false;
   bool nogui = false;
 
-  app.add_option("--callsign", callsign, "Station callsign.")->required();
-  app.add_option("--grid", grid, "4- or 6-character Maidenhead locator.")->required();
-  app.add_option("--mode", mode, "Operating mode (FT8, FT4, WSPR, ...).")->required();
+  // take_last() throughout: argparse let a later --mode override an earlier
+  // one, which is how scripts layer their own defaults under a user's
+  // arguments. CLI11 would refuse the repeat instead.
+  app.add_option("--callsign", callsign, "Station callsign.")->required()->take_last();
+  app.add_option("--grid", grid, "4- or 6-character Maidenhead locator.")->required()->take_last();
+  app.add_option("--mode", mode, "Operating mode (FT8, FT4, WSPR, ...).")->required()->take_last();
   const CLI::Option* band_opt =
-      app.add_option("--rx-band", rx_band, "Band like 40m; resolves to the mode's default dial frequency.");
-  const CLI::Option* freq_opt = app.add_option("--rx-frequency", rx_frequency, "Explicit RF dial frequency in Hz.");
-  app.add_option("--audio-device", audio_device, "Capture source name. Omit for the system default.");
+      app.add_option("--rx-band", rx_band, "Band like 40m; resolves to the mode's default dial frequency.")
+          ->take_last();
+  const CLI::Option* freq_opt =
+      app.add_option("--rx-frequency", rx_frequency, "Explicit RF dial frequency in Hz.")->take_last();
+  app.add_option("--audio-device", audio_device, "Capture source name. Omit for the system default.")->take_last();
   app.add_flag("--psk-reporter", psk_reporter, "Upload decodes to PSK Reporter.");
   app.add_flag("--wsprnet-reporter", wsprnet_reporter, "Upload WSPR spots to wsprnet.org.");
   app.add_flag("--nogui", nogui, "run headless on a virtual X display via xvfb-run");
@@ -205,6 +244,7 @@ int launch(const Options& options) {
   const std::filesystem::path config_home = config::xdg_path("XDG_CONFIG_HOME", ".config");
   const std::filesystem::path data_home = config::xdg_path("XDG_DATA_HOME", ".local/share");
 
+  const BlockedInterrupts no_interrupts;
   const RigNameReservation rig;
   const std::filesystem::path instance_config_path = config_home / ("WSJT-X - " + rig.name() + ".ini");
   const std::filesystem::path instance_data_path = data_home / ("WSJT-X - " + rig.name());

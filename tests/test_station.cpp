@@ -57,6 +57,13 @@ TEST_CASE("frequencies are bounded integers of Hz", "[station]") {
   REQUIRE(station::parse_frequency(" 1 ") == 1);
   REQUIRE(station::parse_frequency("2000000000") == 2000000000);
 
+  // int() took single underscores between digits as grouping.
+  REQUIRE(station::parse_frequency("7_074_000") == 7074000);
+  REQUIRE(station::parse_frequency("+7074000") == 7074000);
+  REQUIRE_THROWS_AS(station::parse_frequency("_7074000"), UsageError);
+  REQUIRE_THROWS_AS(station::parse_frequency("7074000_"), UsageError);
+  REQUIRE_THROWS_AS(station::parse_frequency("7__074000"), UsageError);
+
   REQUIRE_THROWS_WITH(station::parse_frequency("7.074e6"), "rx frequency must be an integer number of Hz: '7.074e6'");
   REQUIRE_THROWS_WITH(station::parse_frequency("0"), "rx frequency must be between 1 Hz and 2 GHz");
   REQUIRE_THROWS_WITH(station::parse_frequency("-1"), "rx frequency must be between 1 Hz and 2 GHz");

@@ -109,6 +109,13 @@ Use the SDR demodulator's `.monitor` source (e.g. `sdr_usb.monitor`) as `--audio
 - When launching a non-snap `/usr/bin/wsjtx`, `wsjtxcli` strips snap runtime variables (including `SNAP*`, `LD_*`, and snap Qt/GTK paths) to avoid Qt/glibc symbol lookup conflicts in GUI mode.
 - Ctrl-C is passed on to WSJT-X, and its exit status becomes `wsjtxcli`'s.
 
+## Licensing
+
+wsjtxcli is MIT licensed (`LICENSE`). CLI11 is compiled into the binary under
+BSD-3-Clause and Catch2 is used by the test suite under BSL-1.0; both notices
+are in `THIRD-PARTY-NOTICES.md`, which ships in the `.deb` under
+`/usr/share/doc/wsjtxcli/` and alongside the standalone downloads.
+
 ## Development
 
 ```bash

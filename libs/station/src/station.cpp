@@ -170,15 +170,14 @@ std::string parse_band(const std::string& value) {
 }
 
 std::int64_t parse_frequency(const std::string& value) {
-  const std::string candidate = strip(value);
-  const bool signed_digits =
-      !candidate.empty() &&
-      (std::all_of(candidate.begin(), candidate.end(), [](unsigned char c) { return std::isdigit(c) != 0; }) ||
-       ((candidate[0] == '+' || candidate[0] == '-') && candidate.size() > 1 &&
-        std::all_of(candidate.begin() + 1, candidate.end(), [](unsigned char c) { return std::isdigit(c) != 0; })));
-  if (!signed_digits) {
+  // What Python's int() accepts: an optional sign and digits, with single
+  // underscores allowed between digits as grouping.
+  static const std::regex integer_re("[+-]?[0-9](?:_?[0-9])*");
+  std::string candidate = strip(value);
+  if (!std::regex_match(candidate, integer_re)) {
     throw UsageError("rx frequency must be an integer number of Hz: " + repr(value));
   }
+  candidate.erase(std::remove(candidate.begin(), candidate.end(), '_'), candidate.end());
 
   errno = 0;
   char* end = nullptr;

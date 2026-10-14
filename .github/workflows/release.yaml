@@ -56,7 +56,7 @@ jobs:
                 -DWSJTXCLI_VERSION="$VERSION" \
                 -DWSJTXCLI_BIN_DIR=/work/dist
               cmake --build build/release -j "$(nproc)"
-              ctest --test-dir build/release --output-on-failure
+              (cd build/release && ctest --output-on-failure)
               # The container runs as root, so dist/ lands root-owned on the
               # mounted host tree; later steps run as the runner user and add
               # the named assets to that same directory.
@@ -76,8 +76,17 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends ruby ruby-dev build-essential
           sudo gem install --no-document fpm
-          mkdir -p pkgroot/usr/bin
+          mkdir -p pkgroot/usr/bin pkgroot/usr/share/doc/wsjtxcli
           install -m 0755 dist/wsjtxcli pkgroot/usr/bin/wsjtxcli
+          # CLI11 is compiled in, and its licence asks for its notice to travel
+          # with any binary distribution.
+          install -m 0644 LICENSE pkgroot/usr/share/doc/wsjtxcli/copyright
+          install -m 0644 THIRD-PARTY-NOTICES.md pkgroot/usr/share/doc/wsjtxcli/
+          # The glibc floor comes from the binary itself rather than from a
+          # number typed here, so it tracks whatever baseline it was built in.
+          GLIBC=$(objdump -T dist/wsjtxcli | sed -n 's/.*GLIBC_\([0-9][0-9.]*\).*/\1/p' | sort -V | tail -1)
+          test -n "$GLIBC"
+          echo "built against glibc $GLIBC"
           fpm -s dir -t deb \
             -n wsjtxcli \
             -v "${{ steps.version.outputs.version }}" \
@@ -85,6 +94,7 @@ jobs:
             --url "https://github.com/ivica3730k/wsjtxcli" \
             --license MIT \
             --maintainer "Ivica <ivica3730k@users.noreply.github.com>" \
+            --depends "libc6 (>= $GLIBC)" \
             --depends wsjtx \
             --depends xvfb \
             --architecture ${{ matrix.deb_arch }} \
@@ -99,6 +109,8 @@ jobs:
           DEB="dist/wsjtxcli_${{ steps.version.outputs.version }}_${{ matrix.deb_arch }}.deb"
           dpkg-deb -f "$DEB" Depends | grep -q wsjtx
           dpkg-deb -f "$DEB" Depends | grep -q xvfb
+          dpkg-deb -f "$DEB" Depends | grep -q 'libc6 (>= '
+          dpkg-deb -c "$DEB" | grep -q usr/share/doc/wsjtxcli/THIRD-PARTY-NOTICES.md
           sudo dpkg -i --force-depends "$DEB"
           /usr/bin/wsjtxcli --version
 
@@ -107,6 +119,8 @@ jobs:
           V="${{ steps.version.outputs.version }}"
           cp dist/wsjtxcli "dist/wsjtxcli-linux-${{ matrix.arch }}-$V"
           cp dist/wsjtxcli "dist/wsjtxcli-linux-${{ matrix.arch }}-latest"
+          # The standalone downloads carry the same notices the package does.
+          cp THIRD-PARTY-NOTICES.md LICENSE dist/
 
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3
         if: github.event_name == 'release'
@@ -114,6 +128,8 @@ jobs:
           files: |
             dist/wsjtxcli-linux-${{ matrix.arch }}-*
             dist/*.deb
+            dist/THIRD-PARTY-NOTICES.md
+            dist/LICENSE
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:

@@ -38,32 +38,68 @@ volatile std::sig_atomic_t interrupted = 0;
 
 extern "C" void on_sigint(int) { interrupted = 1; }
 
-/// Installs a SIGINT handler for as long as a child is running, and puts the
-/// previous one back afterwards. Deliberately without SA_RESTART: waitpid has
-/// to come back with EINTR so the signal can be passed to the child.
-class SigintForwarder {
+/// Does nothing on purpose. Its only job is to make a child's exit wake the
+/// sigsuspend below, which a default-ignored SIGCHLD would not.
+extern "C" void on_sigchld(int) {}
+
+/// Signal handling for as long as a child is running, put back afterwards.
+///
+/// SIGINT and SIGCHLD are blocked for the duration and only unblocked inside
+/// sigsuspend. That is what closes the window a plain handler leaves open: an
+/// interrupt arriving between the check and the wait would otherwise be noted
+/// and then slept through, leaving both processes running with nobody waiting
+/// on the signal.
+class ChildSignals {
  public:
-  SigintForwarder() {
+  ChildSignals() {
     interrupted = 0;
-    struct sigaction action{};
-    action.sa_handler = on_sigint;
-    sigemptyset(&action.sa_mask);
-    action.sa_flags = 0;
-    installed_ = sigaction(SIGINT, &action, &previous_) == 0;
+
+    sigset_t blocked;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGINT);
+    sigaddset(&blocked, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &blocked, &previous_mask_);
+
+    // What sigsuspend waits under: the caller's mask with the two signals this
+    // loop depends on unblocked, whatever the caller had blocked.
+    wait_mask_ = previous_mask_;
+    sigdelset(&wait_mask_, SIGINT);
+    sigdelset(&wait_mask_, SIGCHLD);
+
+    install(SIGINT, on_sigint, &previous_int_);
+    install(SIGCHLD, on_sigchld, &previous_chld_);
   }
 
-  ~SigintForwarder() {
-    if (installed_) {
-      sigaction(SIGINT, &previous_, nullptr);
-    }
+  ~ChildSignals() {
+    sigaction(SIGINT, &previous_int_, nullptr);
+    sigaction(SIGCHLD, &previous_chld_, nullptr);
+    sigprocmask(SIG_SETMASK, &previous_mask_, nullptr);
   }
 
-  SigintForwarder(const SigintForwarder&) = delete;
-  SigintForwarder& operator=(const SigintForwarder&) = delete;
+  ChildSignals(const ChildSignals&) = delete;
+  ChildSignals& operator=(const ChildSignals&) = delete;
+
+  /// Blocks until a signal is handled, with SIGINT and SIGCHLD let through.
+  void wait_for_signal() const { sigsuspend(&wait_mask_); }
+
+  /// The mask the child starts under: the caller's, with SIGINT and SIGCHLD
+  /// let through. A blocked signal survives execve, and a wsjtx deaf to
+  /// Ctrl-C is the opposite of the point.
+  const sigset_t& child_mask() const { return wait_mask_; }
 
  private:
-  bool installed_ = false;
-  struct sigaction previous_{};
+  static void install(int signal_number, void (*handler)(int), struct sigaction* previous) {
+    struct sigaction action{};
+    action.sa_handler = handler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    sigaction(signal_number, &action, previous);
+  }
+
+  sigset_t previous_mask_{};
+  sigset_t wait_mask_{};
+  struct sigaction previous_int_{};
+  struct sigaction previous_chld_{};
 };
 
 std::vector<char*> to_argv(const std::vector<std::string>& values) {
@@ -135,11 +171,11 @@ std::optional<std::string> which(const std::string& name) {
   while (start <= path.size()) {
     const std::size_t end = path.find(':', start);
     const std::string directory = path.substr(start, end == std::string::npos ? std::string::npos : end - start);
-    if (!directory.empty()) {
-      const std::string candidate = directory + "/" + name;
-      if (is_executable_file(candidate)) {
-        return candidate;
-      }
+    // An empty entry is the current directory -- what a shell does with it,
+    // and what shutil.which did by joining it onto a relative path.
+    const std::string candidate = (directory.empty() ? "." : directory) + "/" + name;
+    if (is_executable_file(candidate)) {
+      return candidate;
     }
     if (end == std::string::npos) {
       break;
@@ -165,7 +201,7 @@ int run(const std::vector<std::string>& command, const Environment& env) {
 
   // Installed before the fork so a Ctrl-C landing in the gap is still caught
   // rather than killing us outright and orphaning the child.
-  const SigintForwarder forwarder;
+  const ChildSignals signals;
 
   const pid_t child = fork();
   if (child < 0) {
@@ -173,6 +209,7 @@ int run(const std::vector<std::string>& command, const Environment& env) {
   }
 
   if (child == 0) {
+    sigprocmask(SIG_SETMASK, &signals.child_mask(), nullptr);
     execve(command.front().c_str(), argv.data(), envp.data());
     // 127 is what a shell reports for a command it could not execute, and what
     // Python's subprocess surfaces here as well.
@@ -181,20 +218,23 @@ int run(const std::vector<std::string>& command, const Environment& env) {
 
   int status = 0;
   for (;;) {
-    const pid_t finished = waitpid(child, &status, 0);
+    // Every Ctrl-C is passed on, not just the first: a child that ignores one
+    // would otherwise be unreachable from the terminal.
+    if (interrupted != 0) {
+      interrupted = 0;
+      kill(child, SIGINT);
+      continue;
+    }
+
+    const pid_t finished = waitpid(child, &status, WNOHANG);
     if (finished == child) {
       break;
     }
-    if (errno == EINTR) {
-      // Every Ctrl-C is passed on, not just the first: a child that ignores
-      // one would otherwise be unreachable from the terminal.
-      if (interrupted != 0) {
-        interrupted = 0;
-        kill(child, SIGINT);
-      }
-      continue;
+    if (finished < 0 && errno != EINTR) {
+      throw RuntimeFailure(std::string("waiting for ") + command.front() + " failed: " + std::strerror(errno));
     }
-    throw RuntimeFailure(std::string("waiting for ") + command.front() + " failed: " + std::strerror(errno));
+
+    signals.wait_for_signal();
   }
 
   if (WIFSIGNALED(status)) {

@@ -113,3 +113,21 @@ TEST_CASE("run reports how the child ended", "[process]") {
   // run, which is what the reference surfaced here too.
   REQUIRE(process::run({"/nonexistent/wsjtx"}, env) == 127);
 }
+
+TEST_CASE("an empty PATH entry means the current directory", "[process]") {
+  const ScratchDir scratch("wsjtxcli-cwd");
+  const std::filesystem::path target = scratch.path() / "wsjtx";
+  {
+    std::ofstream script(target);
+    script << "#!/bin/sh\n";
+  }
+  std::filesystem::permissions(target, std::filesystem::perms::owner_all);
+
+  const std::filesystem::path previous = std::filesystem::current_path();
+  std::filesystem::current_path(scratch.path());
+  const EnvVar path("PATH", ":/nonexistent");
+  const std::optional<std::string> found = process::which("wsjtx");
+  std::filesystem::current_path(previous);
+
+  REQUIRE(found == std::string("./wsjtx"));
+}

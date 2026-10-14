@@ -54,6 +54,23 @@ bool wait_for(const std::filesystem::path& path, std::chrono::milliseconds timeo
   return false;
 }
 
+/// Waits for a child to exit, so a hang shows up as a failing test rather than
+/// a test run that never finishes.
+bool wait_for_exit(pid_t pid, std::chrono::milliseconds timeout) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  for (;;) {
+    int status = 0;
+    const pid_t finished = waitpid(pid, &status, WNOHANG);
+    if (finished == pid) {
+      return true;
+    }
+    if (finished < 0 || std::chrono::steady_clock::now() >= deadline) {
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+}
+
 /// A launch under a sandbox: PATH, HOME and both XDG roots point into a
 /// scratch tree, so the test never touches the operator's real WSJT-X profile.
 class Sandbox {
@@ -116,12 +133,26 @@ class Sandbox {
     }
     envp.push_back(nullptr);
 
+    // SIGINT is held off across the fork. The tests below interrupt what comes
+    // back from here immediately, and a signal landing in the gap before
+    // execve would be handled by the inherited Catch2 handler -- the forked
+    // test process reporting a failure on the real one's behalf.
+    sigset_t blocked;
+    sigset_t previous;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGINT);
+    sigprocmask(SIG_BLOCK, &blocked, &previous);
+
     const pid_t pid = fork();
-    REQUIRE(pid >= 0);
     if (pid == 0) {
+      signal(SIGINT, SIG_DFL);
+      sigprocmask(SIG_SETMASK, &previous, nullptr);
       execve(WSJTXCLI_BINARY, argv.data(), envp.data());
       _exit(127);
     }
+    sigprocmask(SIG_SETMASK, &previous, nullptr);
+
+    REQUIRE(pid >= 0);
     return pid;
   }
 
@@ -299,4 +330,33 @@ TEST_CASE("Ctrl-C reaches wsjtx and the instance is still cleaned up", "[launch]
   // The whole point of forwarding rather than dying: the cleanup still runs.
   REQUIRE(std::filesystem::is_empty(sandbox.config_home()));
   REQUIRE(std::filesystem::is_empty(sandbox.data_home()));
+}
+
+TEST_CASE("an interrupt arriving before the wait is not slept through", "[launch]") {
+  const Sandbox sandbox;
+  sandbox.install_waiting_wsjtx();
+
+  const pid_t cli = sandbox.spawn({"--callsign", "9A3ICE", "--grid", "JN95", "--mode", "FT8", "--rx-band", "40m"});
+
+  // Deliberately not waiting for the child to come up: the window this covers
+  // is the one between the instance config being written and the wait starting,
+  // where an interrupt used to be noted and then slept through.
+  for (int attempt = 0; attempt < 5; ++attempt) {
+    kill(cli, SIGINT);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+
+  REQUIRE(wait_for_exit(cli, std::chrono::seconds(10)));
+  REQUIRE(std::filesystem::is_empty(sandbox.config_home()));
+  REQUIRE(std::filesystem::is_empty(sandbox.data_home()));
+}
+
+TEST_CASE("an unusable TMPDIR does not stop a launch", "[launch]") {
+  const Sandbox sandbox;
+  const CommandResult result =
+      sandbox.run("--callsign 9A3ICE --grid JN95 --mode FT8 --rx-band 40m", "TMPDIR=/nonexistent-wsjtxcli-tmpdir");
+
+  REQUIRE(result.exit_code == 0);
+  REQUIRE(read_file(sandbox.record() / "rig").rfind("wsjtx-", 0) == 0);
+  REQUIRE(std::filesystem::is_empty(sandbox.config_home()));
 }

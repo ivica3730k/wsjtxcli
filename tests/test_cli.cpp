@@ -95,3 +95,21 @@ TEST_CASE("invalid values are refused before any config is written", "[cli]") {
                                             "--mode",     "FT8",    "--rx-frequency", "0"};
   REQUIRE_THROWS_AS(cli::parse_arguments(bad_frequency), UsageError);
 }
+
+TEST_CASE("a repeated option takes the last value, as argparse did", "[cli]") {
+  const cli::ParseResult parsed =
+      cli::parse_arguments({"--callsign", "9A3ICE", "--grid", "JN95", "--mode", "FT4", "--rx-frequency", "14074000",
+                            "--mode", "ft8", "--rx-frequency", "7074000"});
+
+  REQUIRE(parsed.options.mode == "FT8");
+  REQUIRE(parsed.options.rx_frequency == 7074000);
+
+  // Still one tuning form: repeating one of them is not giving both.
+  std::vector<std::string> both = band_args();
+  both.insert(both.end(), {"--rx-band", "20m", "--rx-frequency", "7074000"});
+  REQUIRE_THROWS_AS(cli::parse_arguments(both), UsageError);
+
+  std::vector<std::string> repeated_flag = band_args();
+  repeated_flag.insert(repeated_flag.end(), {"--psk-reporter", "--psk-reporter"});
+  REQUIRE(cli::parse_arguments(repeated_flag).options.psk_reporter);
+}

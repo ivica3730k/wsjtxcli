@@ -63,7 +63,7 @@ jobs:
                 -DWSJTXCLI_STATIC_RUNTIME=ON \
                 -DWSJTXCLI_BIN_DIR=/work/dist
               cmake --build build/release -j "$(nproc)"
-              ctest --test-dir build/release --output-on-failure
+              (cd build/release && ctest --output-on-failure)
               # The container runs as root, so dist/ lands root-owned on the
               # mounted host tree; later steps run as the runner user.
               chown -R "$HOST_UID:$HOST_GID" dist/ build/
