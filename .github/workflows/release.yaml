@@ -67,6 +67,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # GitHub-hosted on purpose, unlike the build workflow: this job
+          # produces a published artifact and holds contents: write. The
+          # self-hosted pool also executes pull request code and reaches the
+          # host Docker daemon, which is not a machine a release should be cut
+          # on -- and releases are too rare for the minutes to matter.
           - runner: ubuntu-24.04
             arch: x86_64
             deb_arch: amd64
