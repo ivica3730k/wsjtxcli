@@ -54,6 +54,19 @@ bool wait_for(const std::filesystem::path& path, std::chrono::milliseconds timeo
   return false;
 }
 
+/// Waits for a directory to stop being empty. Used to tell that wsjtxcli has
+/// got as far as writing its instance config.
+bool wait_for_contents(const std::filesystem::path& directory, std::chrono::milliseconds timeout) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (!std::filesystem::is_empty(directory)) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  return false;
+}
+
 /// Waits for a child to exit, so a hang shows up as a failing test rather than
 /// a test run that never finishes.
 bool wait_for_exit(pid_t pid, std::chrono::milliseconds timeout) {
@@ -112,7 +125,11 @@ class Sandbox {
 
   /// Starts wsjtxcli directly, with no shell in between, so the test holds the
   /// pid it needs to signal.
-  pid_t spawn(const std::vector<std::string>& args) const {
+  /// filler_variables pads the child's environment. wsjtxcli copies and
+  /// scrubs the whole environment between writing the instance config and
+  /// starting the wait, so a large one widens that stretch from microseconds
+  /// to milliseconds -- wide enough for a test to aim an interrupt at it.
+  pid_t spawn(const std::vector<std::string>& args, std::size_t filler_variables = 0) const {
     std::vector<std::string> argv_strings = {WSJTXCLI_BINARY};
     argv_strings.insert(argv_strings.end(), args.begin(), args.end());
     std::vector<std::string> env_strings = {"PATH=" + bin().string(),
@@ -121,6 +138,9 @@ class Sandbox {
                                             "XDG_DATA_HOME=" + data_home().string(),
                                             "TMPDIR=" + scratch_.path().string(),
                                             "RECORD=" + record().string()};
+    for (std::size_t index = 0; index < filler_variables; ++index) {
+      env_strings.push_back("WSJTXCLI_FILLER_" + std::to_string(index) + "=" + std::string(64, 'x'));
+    }
 
     std::vector<char*> argv;
     for (std::string& value : argv_strings) {
@@ -332,23 +352,37 @@ TEST_CASE("Ctrl-C reaches wsjtx and the instance is still cleaned up", "[launch]
   REQUIRE(std::filesystem::is_empty(sandbox.data_home()));
 }
 
-TEST_CASE("an interrupt arriving before the wait is not slept through", "[launch]") {
-  const Sandbox sandbox;
-  sandbox.install_waiting_wsjtx();
+TEST_CASE("an interrupt after the config is written is never lost", "[launch]") {
+  // Repeated, because what the interrupt lands on is a race by nature: it may
+  // find the launcher waiting, or still between writing the config and
+  // getting there, or the child still short of its exec. Each of those has
+  // lost the signal at some point during this port's development, and one
+  // attempt hits only one of them.
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    const Sandbox sandbox;
+    sandbox.install_waiting_wsjtx();
 
-  const pid_t cli = sandbox.spawn({"--callsign", "9A3ICE", "--grid", "JN95", "--mode", "FT8", "--rx-band", "40m"});
+    // Padded environment: see spawn(). Without it the stretch this aims at is
+    // a few microseconds wide and the interrupt lands somewhere harmless
+    // instead, which is how the first version of this test passed against the
+    // very code it was meant to catch.
+    const pid_t cli =
+        sandbox.spawn({"--callsign", "9A3ICE", "--grid", "JN95", "--mode", "FT8", "--rx-band", "40m"}, 4000);
 
-  // Deliberately not waiting for the child to come up: the window this covers
-  // is the one between the instance config being written and the wait starting,
-  // where an interrupt used to be noted and then slept through.
-  for (int attempt = 0; attempt < 5; ++attempt) {
-    kill(cli, SIGINT);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    // Interrupting only once the instance config exists is what keeps this
+    // honest: from here on there is state on disk to clean up, so an exit
+    // with both directories empty cannot be explained by wsjtxcli having been
+    // killed before it did anything.
+    REQUIRE(wait_for_contents(sandbox.config_home(), std::chrono::seconds(10)));
+    REQUIRE(kill(cli, SIGINT) == 0);
+
+    REQUIRE(wait_for_exit(cli, std::chrono::seconds(10)));
+    // The status is deliberately not asserted: whether WSJT-X gets to handle
+    // the interrupt itself, is killed by it, or was never reached depends on
+    // how far the launch had got. The cleanup is not optional in any of those.
+    REQUIRE(std::filesystem::is_empty(sandbox.config_home()));
+    REQUIRE(std::filesystem::is_empty(sandbox.data_home()));
   }
-
-  REQUIRE(wait_for_exit(cli, std::chrono::seconds(10)));
-  REQUIRE(std::filesystem::is_empty(sandbox.config_home()));
-  REQUIRE(std::filesystem::is_empty(sandbox.data_home()));
 }
 
 TEST_CASE("an unusable TMPDIR does not stop a launch", "[launch]") {

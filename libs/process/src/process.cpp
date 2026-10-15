@@ -209,6 +209,15 @@ int run(const std::vector<std::string>& command, const Environment& env) {
   }
 
   if (child == 0) {
+    // Order matters, and so does doing this at all. This copy inherited the
+    // parent's SIGINT handler, and until execve replaces the image that
+    // handler is still what runs: an interrupt forwarded into this window
+    // would be swallowed here, leaving the launcher waiting on a child that
+    // never saw it. The dispositions go back to the default while the signals
+    // are still blocked, so one arriving in the gap stays pending and acts
+    // the moment the mask is restored.
+    signal(SIGINT, SIG_DFL);
+    signal(SIGCHLD, SIG_DFL);
     sigprocmask(SIG_SETMASK, &signals.child_mask(), nullptr);
     execve(command.front().c_str(), argv.data(), envp.data());
     // 127 is what a shell reports for a command it could not execute, and what
