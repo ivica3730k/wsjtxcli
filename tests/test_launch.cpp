@@ -104,9 +104,9 @@ class Sandbox {
                  "/usr/bin/env > \"$RECORD/env\"\n"
                  "for arg in \"$@\"; do echo \"$arg\"; done > \"$RECORD/argv\"\n"
                  "rig=${1#--rig-name=}\n"
-                 "/bin/cp \"$XDG_CONFIG_HOME/WSJT-X - $rig.ini\" \"$RECORD/instance.ini\"\n"
-                 "/bin/mkdir -p \"$XDG_DATA_HOME/WSJT-X - $rig\"\n"
-                 "echo decoded > \"$XDG_DATA_HOME/WSJT-X - $rig/decodes.txt\"\n"
+                 "/bin/cp \"$CONFIG_HOME/WSJT-X - $rig.ini\" \"$RECORD/instance.ini\"\n"
+                 "/bin/mkdir -p \"$DATA_HOME/WSJT-X - $rig\"\n"
+                 "echo decoded > \"$DATA_HOME/WSJT-X - $rig/decodes.txt\"\n"
                  "echo \"$rig\" > \"$RECORD/rig\"\n"
                  "exit ${FAKE_WSJTX_EXIT:-0}\n");
   }
@@ -118,7 +118,7 @@ class Sandbox {
                  "#!/bin/sh\n"
                  "trap 'echo interrupted > \"$RECORD/signal\"; exit 130' INT\n"
                  "rig=${1#--rig-name=}\n"
-                 "/bin/cp \"$XDG_CONFIG_HOME/WSJT-X - $rig.ini\" \"$RECORD/instance.ini\"\n"
+                 "/bin/cp \"$CONFIG_HOME/WSJT-X - $rig.ini\" \"$RECORD/instance.ini\"\n"
                  "echo ready > \"$RECORD/ready\"\n"
                  "while true; do /bin/sleep 0.1; done\n");
   }
@@ -136,6 +136,8 @@ class Sandbox {
                                             "HOME=" + scratch_.path().string(),
                                             "XDG_CONFIG_HOME=" + config_home().string(),
                                             "XDG_DATA_HOME=" + data_home().string(),
+                                            "CONFIG_HOME=" + config_home().string(),
+                                            "DATA_HOME=" + data_home().string(),
                                             "TMPDIR=" + scratch_.path().string(),
                                             "RECORD=" + record().string()};
     for (std::size_t index = 0; index < filler_variables; ++index) {
@@ -190,10 +192,11 @@ class Sandbox {
     const std::string path = path_override.empty() ? bin().string() : path_override;
     std::ostringstream command;
     command << "env -i"
-            << " PATH=" << path << " HOME=" << scratch_.path().string() << " XDG_CONFIG_HOME=" << config_home().string()
-            << " XDG_DATA_HOME=" << data_home().string() << " TMPDIR=" << scratch_.path().string()
-            << " RECORD=" << record().string() << " " << extra_env << " " << WSJTXCLI_BINARY << " " << arguments
-            << " 2>&1";
+            << " PATH=" << path << " HOME=" << scratch_.path().string() << " XDG_CONFIG_HOME='"
+            << config_home().string() << "' XDG_DATA_HOME='" << data_home().string() << "' CONFIG_HOME='"
+            << config_home().string() << "' DATA_HOME='" << data_home().string() << "'"
+            << " TMPDIR=" << scratch_.path().string() << " RECORD=" << record().string() << " " << extra_env << " "
+            << WSJTXCLI_BINARY << " " << arguments << " 2>&1";
 
     std::array<char, 256> buffer{};
     std::string output;
@@ -208,8 +211,25 @@ class Sandbox {
 
   std::filesystem::path bin() const { return scratch_.path() / "bin"; }
   std::filesystem::path record() const { return scratch_.path() / "record"; }
-  std::filesystem::path config_home() const { return scratch_.path() / "config"; }
-  std::filesystem::path data_home() const { return scratch_.path() / "data"; }
+
+  // Where WSJT-X would look, which is not the same on both systems. The
+  // sandbox redirects $HOME, and on macOS that is all there is to redirect:
+  // Qt, and so wsjtxcli, ignores the XDG variables there.
+  std::filesystem::path config_home() const {
+#ifdef __APPLE__
+    return scratch_.path() / "Library/Preferences";
+#else
+    return scratch_.path() / "config";
+#endif
+  }
+
+  std::filesystem::path data_home() const {
+#ifdef __APPLE__
+    return scratch_.path() / "Library/Application Support";
+#else
+    return scratch_.path() / "data";
+#endif
+  }
 
  private:
   ScratchDir scratch_{"wsjtxcli-launch"};
@@ -252,6 +272,19 @@ TEST_CASE("the child's exit status is the command's exit status", "[launch]") {
   REQUIRE(result.exit_code == 3);
 }
 
+#ifdef __APPLE__
+
+TEST_CASE("--nogui is refused on macOS before anything is written", "[launch]") {
+  const Sandbox sandbox;
+  const CommandResult result = sandbox.run("--callsign 9A3ICE --grid JN95 --mode FT8 --rx-band 40m --nogui");
+
+  REQUIRE(result.exit_code == 2);
+  REQUIRE(result.output.find("--nogui is not supported on macOS") != std::string::npos);
+  REQUIRE(std::filesystem::is_empty(sandbox.config_home()));
+}
+
+#else
+
 TEST_CASE("--nogui runs wsjtx under xvfb-run on an X11 display", "[launch]") {
   const Sandbox sandbox;
   sandbox.install_fake_xvfb();
@@ -270,6 +303,16 @@ TEST_CASE("--nogui runs wsjtx under xvfb-run on an X11 display", "[launch]") {
   REQUIRE(read_file(sandbox.record() / "instance.ini").find("UploadSpots=true\n") != std::string::npos);
 }
 
+TEST_CASE("a headless run without xvfb-run is reported, not guessed at", "[launch]") {
+  const Sandbox sandbox;
+  const CommandResult result = sandbox.run("--callsign 9A3ICE --grid JN95 --mode FT8 --rx-band 40m --nogui");
+
+  REQUIRE(result.exit_code == 1);
+  REQUIRE(result.output == "xvfb-run not found in PATH (install xvfb)\n");
+}
+
+#endif
+
 TEST_CASE("snap variables do not reach a non-snap wsjtx", "[launch]") {
   const Sandbox sandbox;
   const CommandResult result = sandbox.run("--callsign 9A3ICE --grid JN95 --mode FT8 --rx-band 40m",
@@ -282,21 +325,13 @@ TEST_CASE("snap variables do not reach a non-snap wsjtx", "[launch]") {
   REQUIRE(env.find("HOME=") != std::string::npos);
 }
 
-TEST_CASE("a missing wsjtx or xvfb-run is reported, not guessed at", "[launch]") {
+TEST_CASE("a missing wsjtx is reported, not guessed at", "[launch]") {
   const Sandbox sandbox;
+  const CommandResult result =
+      sandbox.run("--callsign 9A3ICE --grid JN95 --mode FT8 --rx-band 40m", "", sandbox.record().string());
 
-  SECTION("no wsjtx on PATH") {
-    const CommandResult result =
-        sandbox.run("--callsign 9A3ICE --grid JN95 --mode FT8 --rx-band 40m", "", sandbox.record().string());
-    REQUIRE(result.exit_code == 1);
-    REQUIRE(result.output == "wsjtx binary not found in PATH\n");
-  }
-
-  SECTION("no xvfb-run for a headless run") {
-    const CommandResult result = sandbox.run("--callsign 9A3ICE --grid JN95 --mode FT8 --rx-band 40m --nogui");
-    REQUIRE(result.exit_code == 1);
-    REQUIRE(result.output == "xvfb-run not found in PATH (install xvfb)\n");
-  }
+  REQUIRE(result.exit_code == 1);
+  REQUIRE(result.output == "wsjtx binary not found in PATH\n");
 }
 
 TEST_CASE("a mode and band with no default dial frequency stops the launch", "[launch]") {

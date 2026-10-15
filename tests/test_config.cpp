@@ -124,3 +124,33 @@ TEST_CASE("XDG paths follow the environment and fall back to $HOME", "[config]")
     REQUIRE(config::xdg_path("XDG_DATA_HOME", ".local/share") == std::filesystem::path("/home/operator/state"));
   }
 }
+
+TEST_CASE("the instance directories are the ones WSJT-X reads", "[config]") {
+  const EnvVar home("HOME", "/home/operator");
+
+#ifdef __APPLE__
+  // Qt resolves its ConfigLocation and DataLocation from Cocoa on macOS and
+  // never looks at the XDG variables, so neither does wsjtxcli.
+  const EnvVar config_override("XDG_CONFIG_HOME", "/srv/ignored");
+  const EnvVar data_override("XDG_DATA_HOME", "/srv/ignored");
+
+  REQUIRE(config::config_home() == std::filesystem::path("/home/operator/Library/Preferences"));
+  REQUIRE(config::data_home() == std::filesystem::path("/home/operator/Library/Application Support"));
+#else
+  SECTION("the XDG variables decide") {
+    const EnvVar config_override("XDG_CONFIG_HOME", "/srv/state/config");
+    const EnvVar data_override("XDG_DATA_HOME", "/srv/state/data");
+
+    REQUIRE(config::config_home() == std::filesystem::path("/srv/state/config"));
+    REQUIRE(config::data_home() == std::filesystem::path("/srv/state/data"));
+  }
+
+  SECTION("and fall back to the XDG defaults") {
+    const EnvVar config_override("XDG_CONFIG_HOME", nullptr);
+    const EnvVar data_override("XDG_DATA_HOME", nullptr);
+
+    REQUIRE(config::config_home() == std::filesystem::path("/home/operator/.config"));
+    REQUIRE(config::data_home() == std::filesystem::path("/home/operator/.local/share"));
+  }
+#endif
+}

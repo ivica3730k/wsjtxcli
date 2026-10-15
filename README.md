@@ -14,11 +14,21 @@ This is a C++17 port of the original Python implementation. It writes the same i
 - Optional PSK Reporter and WSPRnet spot reporting, with mode-aware guards.
 - Headless operation on GUI-less servers via `xvfb-run` (`--nogui`).
 
+Linux and macOS. `--nogui` is Linux only: it runs WSJT-X on a virtual X
+display via `xvfb-run`, and macOS has neither.
+
 ## Requirements
 
 - `wsjtx` on `PATH`
-- `xvfb` (only for `--nogui`): `apt install xvfb`
-- Nothing else. The binary links libstdc++ statically and is built against Ubuntu 22.04's glibc, so it runs on anything newer without matching the build machine.
+- `xvfb` (only for `--nogui`, Linux): `apt install xvfb`
+- Nothing else. The Linux binary links libstdc++ statically and is built against Ubuntu 22.04's glibc, so it runs on anything newer without matching the build machine; the macOS binary is universal (arm64 + x86_64).
+
+On macOS, WSJT-X installs as an app bundle and its executable is not on `PATH`.
+Put it there:
+
+```bash
+export PATH="/Applications/wsjtx.app/Contents/MacOS:$PATH"
+```
 
 ## Installation
 
@@ -32,7 +42,8 @@ sudo apt install ./wsjtxcli_1.0.0_amd64.deb
 
 ### 2. Standalone binary (recommended for everyone else)
 
-One file per CPU architecture, no packages to install. You still need `wsjtx` (and `xvfb` for `--nogui`) from your package manager.
+One file, no packages to install. You still need `wsjtx` (and `xvfb` for
+`--nogui`) from your package manager.
 
 ```bash
 curl -L -o wsjtxcli \
@@ -41,7 +52,9 @@ chmod +x wsjtxcli
 sudo mv wsjtxcli /usr/local/bin/
 ```
 
-`wsjtxcli-linux-arm64-latest` is the Raspberry Pi / aarch64 build.
+`wsjtxcli-linux-arm64-latest` is the Raspberry Pi / aarch64 build, and
+`wsjtxcli-macos-latest` is a universal binary covering both Apple silicon and
+Intel.
 
 ### 3. From source
 
@@ -86,7 +99,7 @@ wsjtxcli --callsign YOURCALL --grid AA00aa --mode FT8 --rx-frequency 7100000 \
 | `--audio-device`     | no       | Capture source name (e.g. `sdr_usb.monitor`). Omit for system default.                  |
 | `--psk-reporter`     | no       | Upload decodes to PSK Reporter. Not allowed with `--mode WSPR`.                         |
 | `--wsprnet-reporter` | no       | Upload WSPR spots to wsprnet.org. Only allowed with `--mode WSPR`.                      |
-| `--nogui`            | no       | Run on a virtual 1024×768 X display via `xvfb-run`.                                     |
+| `--nogui`            | no       | Linux only. Run on a virtual 1024×768 X display via `xvfb-run`.                         |
 | `--version`          | no       | Print the version and exit.                                                             |
 
 Exactly one of `--rx-band` / `--rx-frequency` is required.
@@ -105,7 +118,13 @@ Use the SDR demodulator's `.monitor` source (e.g. `sdr_usb.monitor`) as `--audio
 
 ## Notes
 
-- Config and data live under `$XDG_CONFIG_HOME` (default `~/.config`) and `$XDG_DATA_HOME` (default `~/.local/share`) respectively, created per-instance and removed on exit — including when the run ends on Ctrl-C.
+- The instance config and data go where WSJT-X itself reads them, which is not
+  the same on both systems. WSJT-X builds those paths from Qt, so `wsjtxcli`
+  uses the directories Qt would hand it: `$XDG_CONFIG_HOME` (default
+  `~/.config`) and `$XDG_DATA_HOME` (default `~/.local/share`) on Linux,
+  `~/Library/Preferences` and `~/Library/Application Support` on macOS, where
+  Qt ignores the XDG variables. Both are created per-instance and removed on
+  exit — including when the run ends on Ctrl-C.
 - When launching a non-snap `/usr/bin/wsjtx`, `wsjtxcli` strips snap runtime variables (including `SNAP*`, `LD_*`, and snap Qt/GTK paths) to avoid Qt/glibc symbol lookup conflicts in GUI mode.
 - Ctrl-C is passed on to WSJT-X, and its exit status becomes `wsjtxcli`'s.
 
@@ -128,9 +147,12 @@ The suite covers argument validation, the rendered instance config against the
 golden files, the snap environment scrubbing, and a full launch against a fake
 `wsjtx` placed on `PATH` — argv, child environment, exit status and cleanup.
 
-CI runs the same suite on x86_64 and arm64, then drops the release binary into
-stock Ubuntu, Debian, Arch and Raspberry Pi OS images with nothing installed
-and makes it launch there too.
+CI runs the same suite on Linux x86_64 and arm64 and on macOS, then drops the
+release binary into stock Ubuntu, Debian, Arch and Raspberry Pi OS images with
+nothing installed and makes it launch there too.
+
+`make build-mac-universal` produces the single arm64 + x86_64 file releases
+ship.
 
 ## Differences from the Python implementation
 
@@ -142,3 +164,6 @@ Three things did change:
 1. `--help` is formatted by CLI11 rather than argparse.
 2. Long options can no longer be abbreviated. `--call` was accepted by argparse; it is not accepted here.
 3. `--version` was added, because a packaged binary with no interpreter behind it has no other way to answer the question.
+
+macOS support is new -- the Python implementation was Linux only -- and is not
+a divergence so much as an addition. Linux behaviour is unchanged.

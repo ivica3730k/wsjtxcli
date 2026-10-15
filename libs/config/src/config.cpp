@@ -96,6 +96,22 @@ std::filesystem::path home_directory() {
   throw RuntimeFailure("cannot determine the home directory");
 }
 
+std::filesystem::path config_home() {
+#ifdef __APPLE__
+  return home_directory() / "Library/Preferences";
+#else
+  return xdg_path("XDG_CONFIG_HOME", ".config");
+#endif
+}
+
+std::filesystem::path data_home() {
+#ifdef __APPLE__
+  return home_directory() / "Library/Application Support";
+#else
+  return xdg_path("XDG_DATA_HOME", ".local/share");
+#endif
+}
+
 std::filesystem::path xdg_path(const std::string& env_var, const std::string& fallback) {
   const char* raw_value = std::getenv(env_var.c_str());
   if (raw_value == nullptr || *raw_value == '\0') {

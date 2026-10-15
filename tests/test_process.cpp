@@ -39,8 +39,8 @@ TEST_CASE("a snap wsjtx keeps the environment it needs", "[process]") {
 TEST_CASE("snap paths are kept out of a non-snap wsjtx", "[process]") {
   const process::Environment sanitized = process::sanitize_wsjtx_environment(snap_polluted(), "/usr/bin/wsjtx");
 
-  for (const std::string& dropped : {"SNAP", "SNAP_NAME", "LD_LIBRARY_PATH", "QT_PLUGIN_PATH", "QML2_IMPORT_PATH",
-                                     "GTK_PATH", "GTK_EXE_PREFIX", "GTK_DATA_PREFIX"}) {
+  for (const char* dropped : {"SNAP", "SNAP_NAME", "LD_LIBRARY_PATH", "QT_PLUGIN_PATH", "QML2_IMPORT_PATH", "GTK_PATH",
+                              "GTK_EXE_PREFIX", "GTK_DATA_PREFIX"}) {
     REQUIRE(sanitized.count(dropped) == 0);
   }
   REQUIRE(sanitized.at("HOME") == "/home/operator");

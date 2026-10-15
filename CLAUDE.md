@@ -5,9 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 C++17 port of the Python `wsjtxcli`. It mints a unique rig name, writes a
-temporary WSJT-X instance config under `$XDG_CONFIG_HOME`, launches
+temporary WSJT-X instance config where WSJT-X reads one, launches
 `wsjtx --rig-name=<name>` (optionally under `xvfb-run`), forwards Ctrl-C to it,
 and removes the config and its data directory however the run ends.
+
+Linux and macOS. The Python implementation was Linux only, so macOS is an
+addition rather than a divergence: `--nogui` is refused there (no X display for
+Xvfb to start) and the instance directories are the Cocoa ones.
 
 Behaviour compatibility with the Python original is the constraint: the
 instance config, the validation messages and the exit statuses are what users
@@ -32,7 +36,7 @@ One CMake target per concern under `libs/`, each with its public headers in
 
 - **`wx_core`** — the two exception types: `UsageError` (exit 2) and `RuntimeFailure` (exit 1).
 - **`wx_station`** — callsign/grid/mode/band/frequency validation and the default dial frequency tables.
-- **`wx_config`** — the instance `.ini` and the XDG base directories.
+- **`wx_config`** — the instance `.ini` and the directories it goes in.
 - **`wx_process`** — snap environment scrubbing, `$PATH` lookup, fork/exec with SIGINT forwarding.
 - **`wx_cli`** — argument wiring and the launch sequence.
 
@@ -48,6 +52,11 @@ vendored under `third_party/` so a clean checkout builds offline.
   error message lists them in it. That is why they are vectors, not maps.
 - **The snap scrubbing decides on context before it removes anything.**
   Dropping the `SNAP*` variables first would hide the context they establish.
+- **The instance directories are Qt's, not ours.** WSJT-X resolves them with
+  `QStandardPaths::ConfigLocation` and `DataLocation`, so `config_home()` and
+  `data_home()` have to return what Qt would: the XDG directories on Linux,
+  `~/Library/Preferences` and `~/Library/Application Support` on macOS, where
+  Qt ignores the XDG variables entirely.
 - **Exit statuses are part of the contract**: 2 for a bad command line, 1 for a
   refusal, otherwise WSJT-X's own status (negated signal number if it was
   killed, the convention Python's `subprocess` handed back).

@@ -8,12 +8,59 @@ on:
 permissions:
   contents: write
 
-# Two downloads per architecture: a .deb for Debian and Ubuntu, which pulls in
-# wsjtx and xvfb, and a bare binary for everyone else. Neither is tied to a
-# distribution -- libstdc++ is linked statically, so the only requirement is
-# glibc, and the baseline is Ubuntu 22.04's.
+# Two downloads per Linux architecture: a .deb for Debian and Ubuntu, which
+# pulls in wsjtx and xvfb, and a bare binary for everyone else. Neither is tied
+# to a distribution -- libstdc++ is linked statically, so the only requirement
+# is glibc, and the baseline is Ubuntu 22.04's. macOS gets one universal binary
+# carrying both slices.
 
 jobs:
+  macos:
+    name: macOS universal
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Resolve version
+        id: version
+        run: |
+          # On a release the ref is the tag; a manual run has no tag to read.
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and test
+        run: |
+          make test
+          make build-mac-universal \
+            CMAKE_FLAGS="-DCMAKE_BUILD_TYPE=Release -DWSJTXCLI_VERSION=${{ steps.version.outputs.version }}"
+
+      - name: Verify both slices are present and the binary runs
+        run: |
+          BIN=binaries/macos-universal/wsjtxcli
+          lipo -archs "$BIN" | tee /tmp/archs
+          grep -q arm64 /tmp/archs && grep -q x86_64 /tmp/archs
+          ./tools/smoke.sh "$BIN"
+
+      - name: Name the assets
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          cd binaries/macos-universal
+          cp wsjtxcli "wsjtxcli-macos-$V"
+          cp wsjtxcli "wsjtxcli-macos-latest"
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3
+        if: github.event_name == 'release'
+        with:
+          files: binaries/macos-universal/wsjtxcli-macos-*
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: wsjtxcli-macos-universal
+          path: binaries/macos-universal/wsjtxcli-macos-*
+
   linux:
     name: Linux ${{ matrix.arch }}
     strategy:

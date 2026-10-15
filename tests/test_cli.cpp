@@ -113,3 +113,16 @@ TEST_CASE("a repeated option takes the last value, as argparse did", "[cli]") {
   repeated_flag.insert(repeated_flag.end(), {"--psk-reporter", "--psk-reporter"});
   REQUIRE(cli::parse_arguments(repeated_flag).options.psk_reporter);
 }
+
+TEST_CASE("--nogui is offered only where xvfb-run can exist", "[cli]") {
+  std::vector<std::string> headless = band_args();
+  headless.emplace_back("--nogui");
+
+#ifdef __APPLE__
+  // No X display to start, so the flag is refused outright rather than
+  // failing later over a missing xvfb-run.
+  REQUIRE_THROWS_WITH(cli::parse_arguments(headless), "--nogui is not supported on macOS");
+#else
+  REQUIRE(cli::parse_arguments(headless).options.nogui);
+#endif
+}

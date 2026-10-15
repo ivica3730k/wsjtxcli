@@ -24,6 +24,14 @@ namespace {
 // Virtual display geometry used for headless (--nogui) operation.
 constexpr const char* kNoguiScreen = "1024x768x24";
 
+// Headless operation is Xvfb, and Xvfb is X11. macOS has neither, so the flag
+// says so in the help rather than failing later over a missing xvfb-run.
+#ifdef __APPLE__
+constexpr const char* kNoguiHelp = "Linux only: not supported on macOS";
+#else
+constexpr const char* kNoguiHelp = "run headless on a virtual X display via xvfb-run (Linux only)";
+#endif
+
 /// Where a temporary file may be put, most preferred first. TMPDIR is only the
 /// first candidate: Python's tempfile picked the first directory that actually
 /// worked, so a stale TMPDIR never stopped a launch.
@@ -165,7 +173,7 @@ ParseResult parse_arguments(const std::vector<std::string>& args) {
   app.add_option("--audio-device", audio_device, "Capture source name. Omit for the system default.")->take_last();
   app.add_flag("--psk-reporter", psk_reporter, "Upload decodes to PSK Reporter.");
   app.add_flag("--wsprnet-reporter", wsprnet_reporter, "Upload WSPR spots to wsprnet.org.");
-  app.add_flag("--nogui", nogui, "run headless on a virtual X display via xvfb-run");
+  app.add_flag("--nogui", nogui, kNoguiHelp);
 
   // CLI11 parses from argc/argv; the vector overload expects its arguments
   // reversed, which is a trap not worth leaving in the code.
@@ -213,6 +221,12 @@ ParseResult parse_arguments(const std::vector<std::string>& args) {
     throw UsageError("--wsprnet-reporter is only allowed with --mode WSPR");
   }
 
+#ifdef __APPLE__
+  if (nogui) {
+    throw UsageError("--nogui is not supported on macOS");
+  }
+#endif
+
   options.audio_device = station::parse_audio_device(audio_device);
 
   options.psk_reporter = psk_reporter;
@@ -241,8 +255,8 @@ int launch(const Options& options) {
     }
   }
 
-  const std::filesystem::path config_home = config::xdg_path("XDG_CONFIG_HOME", ".config");
-  const std::filesystem::path data_home = config::xdg_path("XDG_DATA_HOME", ".local/share");
+  const std::filesystem::path config_home = config::config_home();
+  const std::filesystem::path data_home = config::data_home();
 
   const BlockedInterrupts no_interrupts;
   const RigNameReservation rig;

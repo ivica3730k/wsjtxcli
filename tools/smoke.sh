@@ -15,12 +15,26 @@ fi
 
 ROOT=$(mktemp -d)
 trap 'rm -rf "$ROOT"' EXIT
-mkdir -p "$ROOT/bin" "$ROOT/record" "$ROOT/config" "$ROOT/data"
+
+# The directories WSJT-X itself would read, which differ by system: Qt resolves
+# them from Cocoa on macOS and from the XDG variables everywhere else.
+case "$(uname -s)" in
+  Darwin)
+    CONFIG_HOME="$ROOT/Library/Preferences"
+    DATA_HOME="$ROOT/Library/Application Support"
+    ;;
+  *)
+    CONFIG_HOME="$ROOT/config"
+    DATA_HOME="$ROOT/data"
+    ;;
+esac
+export CONFIG_HOME DATA_HOME
+mkdir -p "$ROOT/bin" "$ROOT/record" "$CONFIG_HOME" "$DATA_HOME"
 
 cat > "$ROOT/bin/wsjtx" <<'FAKE'
 #!/bin/sh
 rig=${1#--rig-name=}
-cp "$XDG_CONFIG_HOME/WSJT-X - $rig.ini" "$RECORD/instance.ini"
+cp "$CONFIG_HOME/WSJT-X - $rig.ini" "$RECORD/instance.ini"
 echo "$1" > "$RECORD/argv"
 FAKE
 chmod 755 "$ROOT/bin/wsjtx"
@@ -28,8 +42,8 @@ chmod 755 "$ROOT/bin/wsjtx"
 "$BIN" --version
 
 RECORD="$ROOT/record" \
-XDG_CONFIG_HOME="$ROOT/config" \
-XDG_DATA_HOME="$ROOT/data" \
+XDG_CONFIG_HOME="$CONFIG_HOME" \
+XDG_DATA_HOME="$DATA_HOME" \
 HOME="$ROOT" \
 PATH="$ROOT/bin:$PATH" \
   "$BIN" --callsign 9A3ICE --grid JN95 --mode FT8 --rx-band 40m --audio-device sdr_usb.monitor
@@ -50,9 +64,9 @@ grep -q -- "--rig-name=wsjtx-" "$ROOT/record/argv" || {
 
 # The config and the data directory belong to the run, not to the operator's
 # profile, so neither may outlive it.
-if [ -n "$(ls -A "$ROOT/config")" ] || [ -n "$(ls -A "$ROOT/data")" ]; then
+if [ -n "$(ls -A "$CONFIG_HOME")" ] || [ -n "$(ls -A "$DATA_HOME")" ]; then
   echo "FAILED: the instance left files behind" >&2
-  ls -A "$ROOT/config" "$ROOT/data" >&2
+  ls -A "$CONFIG_HOME" "$DATA_HOME" >&2
   exit 1
 fi
 

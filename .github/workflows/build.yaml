@@ -33,6 +33,28 @@ jobs:
       - name: Smoke the binary against a fake wsjtx
         run: ./tools/smoke.sh binaries/test/wsjtxcli
 
+  # macOS is built and tested natively -- Apple's SDK cannot run in a Linux
+  # container, so the runner itself is the build host. A pull request runs
+  # Apple silicon alone; merges run both architectures.
+  macos:
+    name: tests macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: >-
+          ${{ github.event_name == 'pull_request'
+          && fromJSON('[{"runner":"macos-14","arch":"arm64"}]')
+          || fromJSON('[{"runner":"macos-14","arch":"arm64"},{"runner":"macos-15-intel","arch":"x86_64"}]') }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Build and test
+        run: make test
+
+      - name: Smoke the binary against a fake wsjtx
+        run: ./tools/smoke.sh binaries/test/wsjtxcli
+
   # The artifact users actually download, built against Ubuntu 22.04's glibc so
   # it stays forward compatible with newer distributions, with libstdc++ linked
   # statically so it does not need the build machine's GCC runtime.
