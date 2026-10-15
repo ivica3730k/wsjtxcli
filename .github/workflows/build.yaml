@@ -80,7 +80,7 @@ jobs:
             ubuntu:22.04 bash -ex -c '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -q
-              apt-get install -y --no-install-recommends build-essential cmake ca-certificates
+              apt-get install -y --no-install-recommends build-essential cmake git ca-certificates
               cmake -S . -B build/release \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DWSJTXCLI_BUILD_TESTS=ON \

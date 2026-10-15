@@ -2,13 +2,13 @@
 // tests/golden -- produced by the Python implementation this port replaces --
 // are what pin the format.
 
+#include <catch2/catch.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
 
-#include "catch.hpp"
 #include "support.hpp"
 #include "wsjtxcli/config.hpp"
 

@@ -40,8 +40,10 @@ One CMake target per concern under `libs/`, each with its public headers in
 - **`wx_process`** — snap environment scrubbing, `$PATH` lookup, fork/exec with SIGINT forwarding.
 - **`wx_cli`** — argument wiring and the launch sequence.
 
-`apps/wsjtxcli` is a `main` that hands `argv` to `wx_cli`. Catch2 and CLI11 are
-vendored under `third_party/` so a clean checkout builds offline.
+`apps/wsjtxcli` is a `main` that hands `argv` to `wx_cli`. CLI11 and Catch2 come
+from `cmake/ThirdParty.cmake`: a system package when one is installed, a pinned
+fetch otherwise. `third_party/` keeps only the licence texts those two ask to
+travel with binaries that include them.
 
 ## Constraints and conventions
 
@@ -66,8 +68,8 @@ vendored under `third_party/` so a clean checkout builds offline.
   surprising behaviour). Don't restate what the code does or reference tickets.
 - Warnings are errors in spirit: the build is clean under `-Wall -Wextra
   -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wold-style-cast`. Keep it
-  that way; vendored headers are included as SYSTEM so their warnings do not
-  leak in.
+  that way; a fetched dependency's headers are marked SYSTEM so their warnings
+  do not leak in.
 
 ## Deliberate divergences from Python
 

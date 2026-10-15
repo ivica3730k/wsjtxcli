@@ -1,10 +1,10 @@
 // Argument wiring: what reaches the launcher, and what is refused before
 // anything is written to disk.
 
+#include <catch2/catch.hpp>
 #include <string>
 #include <vector>
 
-#include "catch.hpp"
 #include "wsjtxcli/cli.hpp"
 #include "wsjtxcli/error.hpp"
 

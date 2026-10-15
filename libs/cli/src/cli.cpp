@@ -3,6 +3,7 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include <CLI/CLI.hpp>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
@@ -12,7 +13,6 @@
 #include <system_error>
 #include <vector>
 
-#include "CLI11.hpp"
 #include "wsjtxcli/config.hpp"
 #include "wsjtxcli/error.hpp"
 #include "wsjtxcli/process.hpp"

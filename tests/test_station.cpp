@@ -1,9 +1,9 @@
 // Argument validation and the dial frequency tables. The messages are part of
 // the contract: they are what a user sees when a launch is refused.
 
+#include <catch2/catch.hpp>
 #include <string>
 
-#include "catch.hpp"
 #include "wsjtxcli/error.hpp"
 #include "wsjtxcli/station.hpp"
 
