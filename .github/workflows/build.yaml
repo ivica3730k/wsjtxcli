@@ -10,14 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  # The full Catch2 suite. This is the fast signal: it compiles and the
-  # behaviour is right.
-  #
-  # Built in an Ubuntu 24.04 container rather than on the runner itself. The
-  # self-hosted pool is a set of Docker hosts, so a container is the one thing
-  # every runner here is known to provide -- and it pins the toolchain, so this
-  # job tests a compiler we named rather than whatever the runner happens to
-  # carry.
+  # The full Catch2 suite, on the runner's own toolchain. This is the fast
+  # signal: it compiles and the behaviour is right.
   tests:
     name: tests ${{ matrix.arch }}
     strategy:
@@ -25,36 +19,20 @@ jobs:
       matrix:
         # A pull request runs one architecture; merges run both. A job-level
         # `if` cannot see the matrix context, so the event picks the matrix.
-        # x86_64 goes to the self-hosted pool; there is no self-hosted arm64,
-        # so that stays on a GitHub-hosted runner.
         include: >-
           ${{ github.event_name == 'pull_request'
-          && fromJSON('[{"runner":"wsjtxcli-runner","arch":"x86_64"}]')
-          || fromJSON('[{"runner":"wsjtxcli-runner","arch":"x86_64"},{"runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
+          && fromJSON('[{"runner":"ubuntu-24.04","arch":"x86_64"}]')
+          || fromJSON('[{"runner":"ubuntu-24.04","arch":"x86_64"},{"runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     runs-on: ${{ matrix.runner }}
-    # The self-hosted pool is four runners. A job that wedges rather than fails
-    # holds one of them for GitHub's default six hours, so say how long this is
-    # ever expected to take -- it is around a minute on a GitHub-hosted runner.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
-      - name: Build, test and smoke in a container
-        run: |
-          docker run --rm -v "$PWD:/work" -w /work \
-            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-            ubuntu:24.04 bash -ex -c '
-              export DEBIAN_FRONTEND=noninteractive
-              apt-get update -q
-              apt-get install -y --no-install-recommends build-essential cmake ca-certificates
-              make test
-              ./tools/smoke.sh binaries/test/wsjtxcli
-              # The container runs as root, so anything it leaves in the
-              # workspace is root-owned. On a self-hosted runner the workspace
-              # outlives the job, and the next checkout -- which runs as the
-              # runner user -- cannot clean files it does not own.
-              chown -R "$HOST_UID:$HOST_GID" binaries/ build/
-            '
+      - name: Build and test
+        run: make test
+
+      - name: Smoke the binary against a fake wsjtx
+        run: ./tools/smoke.sh binaries/test/wsjtxcli
 
   # macOS is built and tested natively -- Apple's SDK cannot run in a Linux
   # container, so the runner itself is the build host. A pull request runs
@@ -88,8 +66,8 @@ jobs:
       matrix:
         include: >-
           ${{ github.event_name == 'pull_request'
-          && fromJSON('[{"runner":"wsjtxcli-runner","arch":"x86_64"}]')
-          || fromJSON('[{"runner":"wsjtxcli-runner","arch":"x86_64"},{"runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
+          && fromJSON('[{"runner":"ubuntu-24.04","arch":"x86_64"}]')
+          || fromJSON('[{"runner":"ubuntu-24.04","arch":"x86_64"},{"runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     steps:
@@ -108,11 +86,13 @@ jobs:
                 -DWSJTXCLI_BUILD_TESTS=ON \
                 -DWSJTXCLI_STATIC_RUNTIME=ON \
                 -DWSJTXCLI_BIN_DIR=/work/dist
+              # The container runs as root, so anything it writes lands
+              # root-owned on the mounted tree, where the steps after this one
+              # run as the runner user. The trap restores ownership even when
+              # the build or the tests fail.
+              trap 'chown -R "$HOST_UID:$HOST_GID" dist/ build/ 2>/dev/null || true' EXIT
               cmake --build build/release -j "$(nproc)"
               (cd build/release && ctest --output-on-failure)
-              # The container runs as root, so dist/ lands root-owned on the
-              # mounted host tree; later steps run as the runner user.
-              chown -R "$HOST_UID:$HOST_GID" dist/ build/
             '
 
       - name: Confirm the binary needs nothing but libc
@@ -138,13 +118,13 @@ jobs:
       matrix:
         include: >-
           ${{ github.event_name == 'pull_request'
-          && fromJSON('[{"name":"ubuntu 24.04","image":"ubuntu:24.04","runner":"wsjtxcli-runner","arch":"x86_64"}]')
+          && fromJSON('[{"name":"ubuntu 24.04","image":"ubuntu:24.04","runner":"ubuntu-24.04","arch":"x86_64"}]')
           || fromJSON('[
-          {"name":"ubuntu 22.04","image":"ubuntu:22.04","runner":"wsjtxcli-runner","arch":"x86_64"},
-          {"name":"ubuntu 24.04","image":"ubuntu:24.04","runner":"wsjtxcli-runner","arch":"x86_64"},
-          {"name":"debian bookworm","image":"debian:bookworm-slim","runner":"wsjtxcli-runner","arch":"x86_64"},
-          {"name":"debian trixie","image":"debian:trixie-slim","runner":"wsjtxcli-runner","arch":"x86_64"},
-          {"name":"arch","image":"archlinux:latest","runner":"wsjtxcli-runner","arch":"x86_64"},
+          {"name":"ubuntu 22.04","image":"ubuntu:22.04","runner":"ubuntu-24.04","arch":"x86_64"},
+          {"name":"ubuntu 24.04","image":"ubuntu:24.04","runner":"ubuntu-24.04","arch":"x86_64"},
+          {"name":"debian bookworm","image":"debian:bookworm-slim","runner":"ubuntu-24.04","arch":"x86_64"},
+          {"name":"debian trixie","image":"debian:trixie-slim","runner":"ubuntu-24.04","arch":"x86_64"},
+          {"name":"arch","image":"archlinux:latest","runner":"ubuntu-24.04","arch":"x86_64"},
           {"name":"ubuntu 24.04 arm64","image":"ubuntu:24.04","runner":"ubuntu-24.04-arm","arch":"arm64"},
           {"name":"debian bookworm arm64","image":"debian:bookworm-slim","runner":"ubuntu-24.04-arm","arch":"arm64"},
           {"name":"raspberry pi os","image":"dtcooper/raspberrypi-os:bookworm","runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
