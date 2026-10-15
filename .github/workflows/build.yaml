@@ -32,6 +32,10 @@ jobs:
           && fromJSON('[{"runner":"wsjtxcli-runner","arch":"x86_64"}]')
           || fromJSON('[{"runner":"wsjtxcli-runner","arch":"x86_64"},{"runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     runs-on: ${{ matrix.runner }}
+    # The self-hosted pool is four runners. A job that wedges rather than fails
+    # holds one of them for GitHub's default six hours, so say how long this is
+    # ever expected to take -- it is around a minute on a GitHub-hosted runner.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -87,6 +91,7 @@ jobs:
           && fromJSON('[{"runner":"wsjtxcli-runner","arch":"x86_64"}]')
           || fromJSON('[{"runner":"wsjtxcli-runner","arch":"x86_64"},{"runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
@@ -143,6 +148,7 @@ jobs:
           {"name":"ubuntu 24.04 arm64","image":"ubuntu:24.04","runner":"ubuntu-24.04-arm","arch":"arm64"},
           {"name":"debian bookworm arm64","image":"debian:bookworm-slim","runner":"ubuntu-24.04-arm","arch":"arm64"},
           {"name":"raspberry pi os","image":"dtcooper/raspberrypi-os:bookworm","runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
