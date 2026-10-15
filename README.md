@@ -4,6 +4,8 @@ Launch a throwaway, receive-only WSJT-X instance for headless SDR decoding of HF
 
 Each run mints a unique per-instance rig name, writes a temporary config seeded with your station identity + operating parameters, launches WSJT-X against it, and cleans up the config and data dir on exit. Multiple instances can run side by side without clobbering each other's settings.
 
+This is a C++17 port of the original Python implementation. It writes the same instance config, takes the same arguments and returns the same exit statuses — the configs the Python version produced are checked in under `tests/golden` and the suite compares against them. What changed is the packaging: one static binary with no interpreter, no virtualenv and no runtime dependencies beyond glibc.
+
 ## Features
 
 - Temporary, isolated config per launch — never touches your normal WSJT-X profile.
@@ -12,62 +14,76 @@ Each run mints a unique per-instance rig name, writes a temporary config seeded 
 - Optional PSK Reporter and WSPRnet spot reporting, with mode-aware guards.
 - Headless operation on GUI-less servers via `xvfb-run` (`--nogui`).
 
+Linux and macOS. `--nogui` is Linux only: it runs WSJT-X on a virtual X
+display via `xvfb-run`, and macOS has neither.
+
 ## Requirements
 
 - `wsjtx` on `PATH`
-- `xvfb` (only for `--nogui`): `apt install xvfb` / `apk add xvfb`
-- Python 3.10+ (only when running from source — not needed for the `.deb` or the standalone binary)
+- `xvfb` (only for `--nogui`, Linux): `apt install xvfb`
+- Nothing else. The Linux binary links libstdc++ statically and is built against Ubuntu 22.04's glibc, so it runs on anything newer without matching the build machine; the macOS binary is universal (arm64 + x86_64).
+
+On macOS, WSJT-X installs as an app bundle and its executable is not on `PATH`.
+Put it there:
+
+```bash
+export PATH="/Applications/wsjtx.app/Contents/MacOS:$PATH"
+```
 
 ## Installation
 
-Pick one of the three methods below. The `.deb` and the standalone binary both install a `wsjtxcli` command; substitute it for `python3 -m wsjtxcli.main` in the usage examples.
-
 ### 1. Debian / Ubuntu package (recommended for Debian/Ubuntu)
 
-Download the `.deb` from the [latest release](../../releases/latest) and install it. Pulls in `wsjtx` and `xvfb` automatically. No Python required.
+Download the `.deb` from the [latest release](../../releases/latest) and install it. Pulls in `wsjtx` and `xvfb` automatically.
 
 ```bash
-sudo apt install ./wsjtxcli_0.0.1_amd64.deb
+sudo apt install ./wsjtxcli_1.0.0_amd64.deb
 ```
 
-### 2. Standalone Linux binary (recommended for everyone else)
+### 2. Standalone binary (recommended for everyone else)
 
-A single self-contained `x86_64` binary that runs on any Linux distribution regardless of glibc version. No Python required. You still need `wsjtx` (and `xvfb` for `--nogui`) installed via your package manager.
+One file, no packages to install. You still need `wsjtx` (and `xvfb` for
+`--nogui`) from your package manager.
 
 ```bash
 curl -L -o wsjtxcli \
-  https://github.com/ivica3730k/wsjtxcli/releases/latest/download/wsjtxcli-linux-x86_64
+  https://github.com/ivica3730k/wsjtxcli/releases/latest/download/wsjtxcli-linux-x86_64-latest
 chmod +x wsjtxcli
 sudo mv wsjtxcli /usr/local/bin/
 ```
 
-### 3. From source (Python)
+`wsjtxcli-linux-arm64-latest` is the Raspberry Pi / aarch64 build, and
+`wsjtxcli-macos-latest` is a universal binary covering both Apple silicon and
+Intel.
 
-Requires Python 3.10+.
+### 3. From source
+
+Needs CMake 3.16+ and a C++17 compiler. Nothing is downloaded during the build: Catch2 and CLI11 are vendored under `third_party/`.
 
 ```bash
 git clone https://github.com/ivica3730k/wsjtxcli.git
 cd wsjtxcli
-python3 -m wsjtxcli.main --help
+make build
+sudo make install          # or just use ./binaries/host/wsjtxcli
 ```
 
 ## Usage
 
 ```bash
-python3 -m wsjtxcli.main --callsign YOURCALL --grid AA00aa --mode FT8 --rx-band 40m # replace wsjtxcli.main just with wsjtxcli if you installed it
+wsjtxcli --callsign YOURCALL --grid AA00aa --mode FT8 --rx-band 40m
 ```
 
 Headless on a server (omit `--audio-device` to use the system default source):
 
 ```bash
-python3 -m wsjtxcli.main --callsign YOURCALL --grid AA00aa --mode WSPR --rx-band 20m \
+wsjtxcli --callsign YOURCALL --grid AA00aa --mode WSPR --rx-band 20m \
   --wsprnet-reporter --nogui
 ```
 
 Explicit dial frequency (e.g. FT8 off its usual sub-band):
 
 ```bash
-python3 -m wsjtxcli.main --callsign YOURCALL --grid AA00aa --mode FT8 --rx-frequency 7100000 \
+wsjtxcli --callsign YOURCALL --grid AA00aa --mode FT8 --rx-frequency 7100000 \
   --audio-device sdr_usb.monitor
 ```
 
@@ -83,7 +99,8 @@ python3 -m wsjtxcli.main --callsign YOURCALL --grid AA00aa --mode FT8 --rx-frequ
 | `--audio-device`     | no       | Capture source name (e.g. `sdr_usb.monitor`). Omit for system default.                  |
 | `--psk-reporter`     | no       | Upload decodes to PSK Reporter. Not allowed with `--mode WSPR`.                         |
 | `--wsprnet-reporter` | no       | Upload WSPR spots to wsprnet.org. Only allowed with `--mode WSPR`.                      |
-| `--nogui`            | no       | Run on a virtual 1024×768 X display via `xvfb-run`.                                     |
+| `--nogui`            | no       | Linux only. Run on a virtual 1024×768 X display via `xvfb-run`.                         |
+| `--version`          | no       | Print the version and exit.                                                             |
 
 Exactly one of `--rx-band` / `--rx-frequency` is required.
 
@@ -101,5 +118,52 @@ Use the SDR demodulator's `.monitor` source (e.g. `sdr_usb.monitor`) as `--audio
 
 ## Notes
 
-- Config and data live under `$XDG_CONFIG_HOME` (default `~/.config`) and `$XDG_DATA_HOME` (default `~/.local/share`) respectively, created per-instance and removed on exit.
+- The instance config and data go where WSJT-X itself reads them, which is not
+  the same on both systems. WSJT-X builds those paths from Qt, so `wsjtxcli`
+  uses the directories Qt would hand it: `$XDG_CONFIG_HOME` (default
+  `~/.config`) and `$XDG_DATA_HOME` (default `~/.local/share`) on Linux,
+  `~/Library/Preferences` and `~/Library/Application Support` on macOS, where
+  Qt ignores the XDG variables. Both are created per-instance and removed on
+  exit — including when the run ends on Ctrl-C.
 - When launching a non-snap `/usr/bin/wsjtx`, `wsjtxcli` strips snap runtime variables (including `SNAP*`, `LD_*`, and snap Qt/GTK paths) to avoid Qt/glibc symbol lookup conflicts in GUI mode.
+- Ctrl-C is passed on to WSJT-X, and its exit status becomes `wsjtxcli`'s.
+
+## Licensing
+
+wsjtxcli is MIT licensed (`LICENSE`). CLI11 is compiled into the binary under
+BSD-3-Clause and Catch2 is used by the test suite under BSL-1.0; both notices
+are in `THIRD-PARTY-NOTICES.md`, which ships in the `.deb` under
+`/usr/share/doc/wsjtxcli/` and alongside the standalone downloads.
+
+## Development
+
+```bash
+make test                          # configure, build and run the Catch2 suite
+./tools/smoke.sh binaries/test/wsjtxcli   # launch a fake wsjtx end to end
+./binaries/test/wsjtxcli-tests "[station]"   # one tag
+```
+
+The suite covers argument validation, the rendered instance config against the
+golden files, the snap environment scrubbing, and a full launch against a fake
+`wsjtx` placed on `PATH` — argv, child environment, exit status and cleanup.
+
+CI runs the same suite on Linux x86_64 and arm64 and on macOS, then drops the
+release binary into stock Ubuntu, Debian, Arch and Raspberry Pi OS images with
+nothing installed and makes it launch there too.
+
+`make build-mac-universal` produces the single arm64 + x86_64 file releases
+ship.
+
+## Differences from the Python implementation
+
+Behaviour is the same where it is observable: identical instance configs,
+identical validation messages, identical exit statuses (2 for a bad command
+line, 1 for a mode/band with no default dial frequency, otherwise WSJT-X's own).
+Three things did change:
+
+1. `--help` is formatted by CLI11 rather than argparse.
+2. Long options can no longer be abbreviated. `--call` was accepted by argparse; it is not accepted here.
+3. `--version` was added, because a packaged binary with no interpreter behind it has no other way to answer the question.
+
+macOS support is new -- the Python implementation was Linux only -- and is not
+a divergence so much as an addition. Linux behaviour is unchanged.

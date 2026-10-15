@@ -1,0 +1,4 @@
+# Google style with a wider column limit -- the one deviation, and the reason
+# the config is checked in rather than left to each editor's default.
+BasedOnStyle: Google
+ColumnLimit: 120

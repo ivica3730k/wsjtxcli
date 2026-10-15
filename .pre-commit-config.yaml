@@ -3,30 +3,14 @@ default_install_hook_types:
   - commit-msg
 
 repos:
-  - repo: https://github.com/psf/black
-    rev: 25.1.0
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v19.1.7
     hooks:
-      - id: black
+      - id: clang-format
         stages: [pre-commit]
-        language_version: python3
-        args: ["--config", "pyproject.toml", "wsjtxcli", "tests"]
-        pass_filenames: false
-
-  - repo: https://github.com/pycqa/isort
-    rev: 6.0.1
-    hooks:
-      - id: isort
-        stages: [pre-commit]
-        args: ["--settings-path", "pyproject.toml", "wsjtxcli", "tests"]
-        pass_filenames: false
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.18.2
-    hooks:
-      - id: mypy
-        stages: [pre-commit]
-        args: ["--config-file", "pyproject.toml", "wsjtxcli", "tests"]
-        pass_filenames: false
+        # Vendored headers are somebody else's formatting to keep.
+        exclude: ^third_party/
+        types_or: [c++]
 
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: v4.2.0
