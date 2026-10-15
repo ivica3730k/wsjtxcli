@@ -91,7 +91,6 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/work" -w /work \
             -e VERSION="${{ steps.version.outputs.version }}" \
-            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
             ubuntu:22.04 bash -ex -c '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -q
@@ -102,14 +101,17 @@ jobs:
                 -DWSJTXCLI_STATIC_RUNTIME=ON \
                 -DWSJTXCLI_VERSION="$VERSION" \
                 -DWSJTXCLI_BIN_DIR=/work/dist
-              # The container runs as root, so anything it writes lands
-              # root-owned on the mounted tree, and the steps after this one
-              # run as the runner user and add the named assets to that same
-              # directory. The trap restores ownership even on a failure.
-              trap 'chown -R "$HOST_UID:$HOST_GID" dist/ build/ 2>/dev/null || true' EXIT
               cmake --build build/release -j "$(nproc)"
               (cd build/release && ctest --output-on-failure)
             '
+
+      # The container runs as root, so everything it wrote on the mounted tree
+      # is root-owned, and the steps after it run as the runner user. Its own
+      # command cannot do this: a `trap` would need single quotes inside the
+      # single-quoted script above, which ends that string rather than nesting.
+      - name: Restore workspace ownership
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" dist build 2>/dev/null || true
 
       - name: Confirm the binary needs nothing but libc
         run: |
