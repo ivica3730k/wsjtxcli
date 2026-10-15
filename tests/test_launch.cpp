@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -52,6 +53,27 @@ bool wait_for(const std::filesystem::path& path, std::chrono::milliseconds timeo
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   return false;
+}
+
+/// How many filler variables the padded environment gets.
+///
+/// The padding widens the stretch this test aims at, so more is better, but
+/// arguments and environment share one budget and exceeding it fails the exec
+/// outright. 4000 variables is about 340 KB: a third of the 1 MB macOS allows
+/// (sysconf(_SC_ARG_MAX) there is 1048576) and a sixth of a typical Linux
+/// limit. Rather than trust that about every system this may run on, stay
+/// under half of whatever this one reports -- which leaves the 4000 intact on
+/// both, and shrinks them rather than failing the exec anywhere tighter.
+std::size_t filler_variables() {
+  // "WSJTXCLI_FILLER_<n>=" plus 64 characters, rounded up.
+  constexpr std::size_t kBytesPerVariable = 96;
+  constexpr std::size_t kWanted = 4000;
+
+  const long limit = sysconf(_SC_ARG_MAX);
+  if (limit <= 0) {
+    return kWanted;
+  }
+  return std::min(kWanted, (static_cast<std::size_t>(limit) / 2) / kBytesPerVariable);
 }
 
 /// Waits for a directory to stop being empty. Used to tell that wsjtxcli has
@@ -125,11 +147,11 @@ class Sandbox {
 
   /// Starts wsjtxcli directly, with no shell in between, so the test holds the
   /// pid it needs to signal.
-  /// filler_variables pads the child's environment. wsjtxcli copies and
-  /// scrubs the whole environment between writing the instance config and
-  /// starting the wait, so a large one widens that stretch from microseconds
-  /// to milliseconds -- wide enough for a test to aim an interrupt at it.
-  pid_t spawn(const std::vector<std::string>& args, std::size_t filler_variables = 0) const {
+  /// filler pads the child's environment. wsjtxcli copies and scrubs the
+  /// whole environment between writing the instance config and starting the
+  /// wait, so a large one widens that stretch from microseconds to
+  /// milliseconds -- wide enough for a test to aim an interrupt at it.
+  pid_t spawn(const std::vector<std::string>& args, std::size_t filler = 0) const {
     std::vector<std::string> argv_strings = {WSJTXCLI_BINARY};
     argv_strings.insert(argv_strings.end(), args.begin(), args.end());
     std::vector<std::string> env_strings = {"PATH=" + bin().string(),
@@ -140,7 +162,7 @@ class Sandbox {
                                             "DATA_HOME=" + data_home().string(),
                                             "TMPDIR=" + scratch_.path().string(),
                                             "RECORD=" + record().string()};
-    for (std::size_t index = 0; index < filler_variables; ++index) {
+    for (std::size_t index = 0; index < filler; ++index) {
       env_strings.push_back("WSJTXCLI_FILLER_" + std::to_string(index) + "=" + std::string(64, 'x'));
     }
 
@@ -401,8 +423,8 @@ TEST_CASE("an interrupt after the config is written is never lost", "[launch]") 
     // a few microseconds wide and the interrupt lands somewhere harmless
     // instead, which is how the first version of this test passed against the
     // very code it was meant to catch.
-    const pid_t cli =
-        sandbox.spawn({"--callsign", "9A3ICE", "--grid", "JN95", "--mode", "FT8", "--rx-band", "40m"}, 4000);
+    const pid_t cli = sandbox.spawn({"--callsign", "9A3ICE", "--grid", "JN95", "--mode", "FT8", "--rx-band", "40m"},
+                                    filler_variables());
 
     // Interrupting only once the instance config exists is what keeps this
     // honest: from here on there is state on disk to clean up, so an exit
