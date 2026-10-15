@@ -76,24 +76,26 @@ jobs:
       - name: Build in the Ubuntu 22.04 baseline
         run: |
           docker run --rm -v "$PWD:/work" -w /work \
-            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
             ubuntu:22.04 bash -ex -c '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -q
-              apt-get install -y --no-install-recommends build-essential cmake ca-certificates
+              apt-get install -y --no-install-recommends build-essential cmake git ca-certificates
               cmake -S . -B build/release \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DWSJTXCLI_BUILD_TESTS=ON \
                 -DWSJTXCLI_STATIC_RUNTIME=ON \
                 -DWSJTXCLI_BIN_DIR=/work/dist
-              # The container runs as root, so anything it writes lands
-              # root-owned on the mounted tree, where the steps after this one
-              # run as the runner user. The trap restores ownership even when
-              # the build or the tests fail.
-              trap 'chown -R "$HOST_UID:$HOST_GID" dist/ build/ 2>/dev/null || true' EXIT
               cmake --build build/release -j "$(nproc)"
               (cd build/release && ctest --output-on-failure)
             '
+
+      # The container runs as root, so everything it wrote on the mounted tree
+      # is root-owned, and the steps after it run as the runner user. Its own
+      # command cannot do this: a `trap` would need single quotes inside the
+      # single-quoted script above, which ends that string rather than nesting.
+      - name: Restore workspace ownership
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" dist build 2>/dev/null || true
 
       - name: Confirm the binary needs nothing but libc
         run: |

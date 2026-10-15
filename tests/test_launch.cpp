@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <catch2/catch.hpp>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -17,7 +18,6 @@
 #include <thread>
 #include <vector>
 
-#include "catch.hpp"
 #include "support.hpp"
 
 namespace {

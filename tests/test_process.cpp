@@ -2,10 +2,10 @@
 // snap-polluted environment makes /usr/bin/wsjtx fail its symbol lookups, so
 // what it keeps matters as much as what it drops.
 
+#include <catch2/catch.hpp>
 #include <fstream>
 #include <string>
 
-#include "catch.hpp"
 #include "support.hpp"
 #include "wsjtxcli/process.hpp"
 

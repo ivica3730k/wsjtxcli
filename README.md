@@ -58,7 +58,9 @@ Intel.
 
 ### 3. From source
 
-Needs CMake 3.16+ and a C++17 compiler. Nothing is downloaded during the build: Catch2 and CLI11 are vendored under `third_party/`.
+Needs CMake 3.16+, a C++17 compiler and git. CMake builds CLI11 as part of the
+project, and Catch2 as well for the test suite -- both at the versions pinned
+in `cmake/ThirdParty.cmake`, or from a system package where one is installed.
 
 ```bash
 git clone https://github.com/ivica3730k/wsjtxcli.git
