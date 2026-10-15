@@ -36,7 +36,7 @@ PATH="$ROOT/bin:$PATH" \
 
 for expected in "MyCall=9A3ICE" "MyGrid=JN95" "Mode=FT8" "DialFreq=7074000" \
                 "SoundInName=sdr_usb.monitor" "Rig=None" "TxWatchdog=1"; do
-  grep -qx "$expected" "$ROOT/record/instance.ini" || {
+  grep -qxF "$expected" "$ROOT/record/instance.ini" || {
     echo "FAILED: instance config has no $expected" >&2
     cat "$ROOT/record/instance.ini" >&2
     exit 1
@@ -62,7 +62,7 @@ if HOME="$ROOT" PATH="$ROOT/record" "$BIN" --callsign 9A3ICE --grid JN95 --mode 
   echo "FAILED: a missing wsjtx was not reported" >&2
   exit 1
 fi
-grep -qx "wsjtx binary not found in PATH" "$ROOT/stderr" || {
+grep -qxF "wsjtx binary not found in PATH" "$ROOT/stderr" || {
   echo "FAILED: unexpected message for a missing wsjtx" >&2
   cat "$ROOT/stderr" >&2
   exit 1
